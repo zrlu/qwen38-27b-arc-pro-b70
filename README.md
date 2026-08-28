@@ -23,7 +23,7 @@ First start auto-downloads the HF model (~18 GB) into `/model`, then serves in
 Native Linux: replace `--device /dev/dxg` with `--device /dev/dri` +
 `--group-add $(stat -c '%g' /dev/dri/render*)`, drop the wsl-lib mounts.
 
-Tuned defaults baked in: MTP4, KV 8.8 GiB (~206k token pool),
+Tuned defaults baked in: MTP4, Context=100000, KV=4617089843,
 `MAX_NUM_SEQS=1`, prefix cache ON, `repetition_penalty=1.05` +
 `presence_penalty=0.5`, `qwen3_xml` parser.
 
