@@ -44,5 +44,5 @@ ENV B70_THINKING_BUDGET=4096 \
     HF_REPO=zrlu/Huihui-Qwen3.8-27B-abliterated-GPTQ-Int4-sym-G128-MTP-BF16-B70
 
 EXPOSE 8000
-LABEL version="v13"
+LABEL version="v14"
 ENTRYPOINT ["bash", "/opt/qwen38/start.sh"]
