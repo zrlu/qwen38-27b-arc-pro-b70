@@ -34,6 +34,7 @@ python /opt/qwen38/patch_gdn_mixed_split_v5.py
 python /opt/qwen38/patch_draft_lmhead_int4.py
 python /opt/qwen38/patch_draft_mtp_int4.py
 python /opt/qwen38/patch_xpu_single_gpu_warmup.py
+python /opt/qwen38/patch_tile_mask.py
 
 if (( DRAFT_INT4 > 0 )); then
   export B70_DRAFT_LMHEAD_INT4=1
@@ -59,7 +60,6 @@ args=(
   --served-model-name "$MODEL_NAME" \
   --generation-config auto \
   $(if [ -n "$REASONING_PARSER" ]; then echo "--reasoning-parser $REASONING_PARSER"; fi) \
-  --default-chat-template-kwargs '{"enable_thinking": false}'
 )
 
 if [ "${MM_IMAGES}" != "0" ]; then
@@ -78,21 +78,6 @@ fi
 
 if (( MTP_TOKENS > 0 )); then
   args+=(--speculative-config "{\"method\":\"mtp\",\"num_speculative_tokens\":${MTP_TOKENS}}")
-fi
-
-gc=""
-if [ -n "${OVERRIDE_GENERATION_CONFIG:-}" ]; then
-  gc="${OVERRIDE_GENERATION_CONFIG}"
-elif [ -n "${OVERRIDE_RP:-}${OVERRIDE_PP:-}" ]; then
-  gc="{"
-  first=1
-  if [ -n "${OVERRIDE_RP:-}" ]; then gc="${gc}\"repetition_penalty\":${OVERRIDE_RP}"; first=0; fi
-  if [ -n "${OVERRIDE_PP:-}" ]; then [ $first -eq 0 ] && gc="${gc},"; gc="${gc}\"presence_penalty\":${OVERRIDE_PP}"; fi
-  gc="${gc}}"
-fi
-if [ -n "$gc" ]; then
-  echo "[start] override-generation-config: ${gc}"
-  args+=(--override-generation-config "${gc}")
 fi
 
 exec vllm serve "$MODEL_PATH" "${args[@]}"
