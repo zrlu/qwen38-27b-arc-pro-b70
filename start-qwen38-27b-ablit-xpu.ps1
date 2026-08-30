@@ -30,7 +30,6 @@ docker run -d --name $containerName `
   -e VLLM_TARGET_DEVICE=xpu `
   -e ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE `
   -e ZE_AFFINITY_MASK=0 `
-  -e B70_MTP_BF16_DRAFT=1 `
   -e VLLM_XPU_ENABLE_XPU_GRAPH=1 `
   -e CCL_ATL_TRANSPORT=ofi `
   -e CCL_ENABLE_SYCL_KERNELS=0 `
@@ -46,7 +45,7 @@ docker run -d --name $containerName `
   -e DRAFT_INT4=1 `
   -e PREFIX_CACHE=1 `
   -e MAX_NUM_SEQS=1 `
-  -e GPU_MEMORY_UTILIZATION=0.88 `
+  -e GPU_MEMORY_UTILIZATION=0.6 `
   -e KV_CACHE_MEMORY_BYTES=4617089843 `
   -e MAX_NUM_BATCHED_TOKENS=8192 `
   -e MM_IMAGES=16 `
