@@ -45,7 +45,7 @@ docker run -d --name $containerName `
   -e DRAFT_INT4=1 `
   -e PREFIX_CACHE=1 `
   -e MAX_NUM_SEQS=1 `
-  -e GPU_MEMORY_UTILIZATION=0.6 `
+  -e GPU_MEMORY_UTILIZATION=0.88 `
   -e KV_CACHE_MEMORY_BYTES=4617089843 `
   -e MAX_NUM_BATCHED_TOKENS=8192 `
   -e MM_IMAGES=16 `
