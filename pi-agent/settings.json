@@ -1,0 +1,12 @@
+{
+  "defaultProvider": "local-xpu",
+  "defaultModel": "huihui-qwen38-27b-abliterated-int4",
+  "defaultThinkingLevel": "medium",
+  "compaction": {
+    "reserveTokens": 24576,
+    "keepRecentTokens": 20000
+  },
+  "lastChangelogVersion": "0.84.4",
+  "theme": "dark",
+  "hideThinkingBlock": false
+}

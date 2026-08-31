@@ -32,16 +32,18 @@ python /opt/qwen38/patch_mtp_nightly.py
 python /opt/qwen38/patch_mtp_boundary.py
 python /opt/qwen38/patch_gdn_mixed_split_v5.py
 python /opt/qwen38/patch_draft_lmhead_int4.py
-python /opt/qwen38/patch_draft_mtp_int4.py
 python /opt/qwen38/patch_xpu_single_gpu_warmup.py
 python /opt/qwen38/patch_tile_mask.py
 
 if (( DRAFT_INT4 > 0 )); then
+  echo "[start] MTP INT4 quantization ENABLED (v2, fc skipped)"
+  python /opt/qwen38/patch_draft_mtp_int4_v2.py
   export B70_DRAFT_LMHEAD_INT4=1
   export B70_DRAFT_MTP_INT4=1
-  echo "[start] draft-INT4 S+M1 overlay ENABLED"
 else
-  echo "[start] draft-INT4 overlay OFF (BF16 draft)"
+  echo "[start] MTP INT4 quantization DISABLED (MTP stays BF16)"
+  unset B70_DRAFT_LMHEAD_INT4
+  unset B70_DRAFT_MTP_INT4
 fi
 
 REASONING_PARSER="${REASONING_PARSER:-qwen3}"

@@ -40,7 +40,7 @@ m.save_quantized(MODEL_OUT)
 ## Pitfalls
 
 - **Windows quoting**: `-e KEY='{"a":1}'` loses quotes through PowerShell→docker;
-  pass numbers (`OVERRIDE_RP=1.05`) and let start.sh build the JSON.
+  pass numbers (`MM_IMAGES=16`) and let start.sh build the JSON.
 - Use the **public champion base** digest for reproducibility
   (`vllm/vllm-openai-xpu@sha256:f01e24f6…`).
 - Publishing derivative quants: follow `LICENSING_SKILL.md` — Qwen base ⇒
