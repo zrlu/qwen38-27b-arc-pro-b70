@@ -113,8 +113,6 @@ start, since the base vLLM image does not contain them.
 
 Apache-2.0 (inherited; quantization only). Models derived from
 [huihui-ai/Huihui-Qwen3.8-27B-abliterated](https://huggingface.co/huihui-ai/Huihui-Qwen3.8-27B-abliterated),
-[OBLITERATUS/…](https://huggingface.co/OBLITERATUS/Qwen3.8-27B-OBLITERATED) and
-[Jiunsong/SuperQwen…](https://huggingface.co/Jiunsong/SuperQwen3.8-27b-abliterated)
 (Qwen/Qwen3.8-27B lineage); tuning methodology from the SergiioB B70 cookbook.
 Benchmarks are Windows WSL2, self-reported - not comparable cell-for-cell with
 native-Linux cookbook numbers.
