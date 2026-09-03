@@ -1,6 +1,7 @@
 # Qwen3.8-27B (huihui abliterated) GPTQ-INT4 MTP-BF16 — single Intel Arc Pro B70
 # One-click serving image (Windows Docker Desktop + WSL2 or native Linux).
-FROM vllm/vllm-openai-xpu@sha256:4756b66a077627133cee653b551f6f5eaa1b9a981b5eea13edd33fcd3b0d3ca3
+# Based on the in-use image (which already has the original base + kernels).
+FROM zrlu/qwen38-27b-arc-pro-b70:latest
 RUN pip install --no-cache-dir vllm-xpu-kernels==0.1.12.3 && \
     python -c "import vllm_xpu_kernels, importlib.metadata as m; print('vllm-xpu-kernels', m.version('vllm-xpu-kernels'))"
 
@@ -24,6 +25,7 @@ ENV B70_THINKING_BUDGET=4096 \
     ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE \
     ZE_AFFINITY_MASK=0 \
     VLLM_XPU_ENABLE_XPU_GRAPH=1 \
+    VLLM_USE_BREAKABLE_CUDAGRAPH=1 \
     PYTORCH_ALLOC_CONF=expandable_segments:True \
     CCL_ATL_TRANSPORT=ofi \
     CCL_ENABLE_SYCL_KERNELS=0 \
@@ -36,6 +38,7 @@ ENV B70_THINKING_BUDGET=4096 \
     GPU_MEMORY_UTILIZATION=0.88 \
     MAX_NUM_BATCHED_TOKENS=8192 \
     PREFIX_CACHE=1 \
+    ENFORCE_EAGER=0 \
     MM_IMAGES=16 \
     TOOL_CALL_PARSER=qwen3_xml \
     MODEL_BOOTSTRAP=1 \

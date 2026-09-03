@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
+# qwen38-ablit B70 launcher — GPTQ INT4 model.
+#
+# /model = GPTQ INT4 checkpoint (fp16 weights, fp8 KV, MTP INT4 draft).
+# Env overrides (MODEL_NAME, MAX_MODEL_LEN, MTP_TOKENS, DRAFT_INT4, MM_IMAGES,
+# KV_CACHE_MEMORY_BYTES, GPU_MEMORY_UTILIZATION, KV_CACHE_DTYPE,
+# ENFORCE_EAGER) are passed by the ps1 launcher.
 set -eu
 
-# Disable CUDA detection to avoid platform conflicts with XPU
 export CUDA_VISIBLE_DEVICES=""
 export VLLM_ALLOW_RUNTIME_PLUGIN_REGISTER=1
 
@@ -16,6 +21,7 @@ MTP_TOKENS="${MTP_TOKENS:-2}"
 KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-auto}"
 DRAFT_INT4="${DRAFT_INT4:-1}"
 PREFIX_CACHE="${PREFIX_CACHE:-1}"
+ENFORCE_EAGER="${ENFORCE_EAGER:-0}"
 ENABLE_TOOLS="${ENABLE_TOOLS:-1}"
 TOOL_CALL_PARSER="${TOOL_CALL_PARSER:-qwen3_coder}"
 MM_IMAGES="${MM_IMAGES:-0}"
@@ -35,15 +41,14 @@ python /opt/qwen38/patch_draft_lmhead_int4.py
 python /opt/qwen38/patch_xpu_single_gpu_warmup.py
 python /opt/qwen38/patch_tile_mask.py
 
+# ---- MTP draft quantization (INT4 model only) --------------------------
 if (( DRAFT_INT4 > 0 )); then
-  echo "[start] MTP INT4 quantization ENABLED (v2, fc skipped)"
   python /opt/qwen38/patch_draft_mtp_int4_v2.py
   export B70_DRAFT_LMHEAD_INT4=1
   export B70_DRAFT_MTP_INT4=1
 else
-  echo "[start] MTP INT4 quantization DISABLED (MTP stays BF16)"
-  unset B70_DRAFT_LMHEAD_INT4
-  unset B70_DRAFT_MTP_INT4
+  unset B70_DRAFT_LMHEAD_INT4 2>/dev/null || true
+  unset B70_DRAFT_MTP_INT4 2>/dev/null || true
 fi
 
 REASONING_PARSER="${REASONING_PARSER:-qwen3}"
@@ -59,6 +64,7 @@ args=(
   --max-num-seqs "$MAX_NUM_SEQS" \
   --max-num-batched-tokens "$MAX_NUM_BATCHED_TOKENS" \
   $(if [ "$PREFIX_CACHE" = "1" ]; then echo "--enable-prefix-caching"; else echo "--no-enable-prefix-caching"; fi) \
+  $(if [ "$ENFORCE_EAGER" = "1" ]; then echo "--enforce-eager"; fi) \
   --served-model-name "$MODEL_NAME" \
   --generation-config auto \
   $(if [ -n "$REASONING_PARSER" ]; then echo "--reasoning-parser $REASONING_PARSER"; fi) \

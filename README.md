@@ -14,7 +14,7 @@ stack: vLLM XPU `0.28.0`, kernels `0.1.12.3`, MTP3 speculative decoding
 ## How to run (Windows + Docker Desktop/WSL2)
 
 ```powershell
-./start-qwen38-27b-ablit-xpu.ps1
+./start-qwen38-27b-ablit-xpu-int4.ps1
 ```
 
 First start auto-downloads the HF model (~18 GB) into `/model`, then serves in
@@ -29,6 +29,29 @@ the B70; 4 only wins at 32k and collapses at 48k), Context=100000,
 KV=4617089843, `MAX_NUM_SEQS=1`, prefix cache ON, `qwen3_xml` parser.
 Sampling (`temperature 1.0, top_k 20, top_p 0.95`) is taken from the model's
 own `generation_config.json`, which vLLM applies automatically.
+
+## Why breakable CUDA graph is enabled (VLLM_USE_BREAKABLE_CUDAGRAPH=1)
+
+The image bakes `VLLM_XPU_ENABLE_XPU_GRAPH=1` **and**
+`VLLM_USE_BREAKABLE_CUDAGRAPH=1`. On the XPU backend, CUDA-graph capture
+compiles the whole forward into a static replay, but the GDN (linear-
+attention) custom op reads per-step state (conv/ssm) from buffers that are
+staged from live block tables. Under a normal (non-breakable) PIECEWISE
+graph, a long prefill can bind those state indices to capture-time buffers,
+corrupt the shared GDN state, and poison later requests (flat logits
+repeating a single token).
+
+`VLLM_USE_BREAKABLE_CUDAGRAPH=1` (the upstream experimental switch, on by
+default here) marks the GDN custom op as an *eager break point*: capture
+ends the current graph segment at the op, the op runs eagerly re-reading the
+live per-step metadata, and capture resumes. Every inference replay therefore
+uses correct, current GDN state. All other layers remain in the captured
+graph, so the speed benefit of CUDA graphs is kept (decode ~2x vs.
+`--enforce-eager` on this part, measured under `benchmarks/`).
+
+Setting it to 0 (e.g. `-e VLLM_USE_BREAKABLE_CUDAGRAPH=0`) or forcing
+`--enforce-eager` are the two ways back to the unsafe/slow paths and are
+only for A/B debugging — do NOT ship the image without breakable enabled.
 
 ## Runtime patches (why they exist)
 
