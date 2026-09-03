@@ -3,13 +3,25 @@
   Launch the B70 (Arc Pro) vLLM container with the legacy GPTQ INT4 model.
 
   Fixed preset (no parameters needed):
-    - model        : C:\LocalLLM\qwen38-27b-ablit-xpu\model (GPTQ INT4, 100K ctx, fp16)
-    - maxModelLen  : 100000
+    - model        : C:\LocalLLM\qwen38-27b-ablit-xpu\model (GPTQ INT4, fp16)
+    - maxModelLen  : 240000 (keeps ~0.75 GiB extra VRAM headroom vs 262K)
     - MTP          : 3 (native MTP spec decode, INT4 draft)
-    - KV cache     : manual 4.5 GiB pool (4617089843)
+    - KV cache     : manual 9.0 GiB pool for 240K (MTP3, fp8)
     - graph        : ENFORCE_EAGER=0 (default; GPU graph + breakable cudagraph
                      is on for throughput, see README "Breakable CUDA graph")
     - served name  : huihui-qwen38-27b-abliterated-int4
+
+  Measured (B70, MTP3 + breakable graph, single-threaded):
+    decode 128/256         ~32-38 token/s
+    long-ctx decode 8K-16K ~13 token/s
+    prefill 512/2048       ~470 / ~1170 token/s
+
+  RECOMMENDED (headless): run this WITHOUT a display attached.
+  The Arc B70 shares VRAM with the desktop; a desktop monitor makes the
+  display compositor hold framebuffer memory and can push the 262K KV
+  budget (18.2 wt + 8.7 KV + act ~= 28.9 GiB of 31.16) over the edge.
+  Headless (or an idle/blank desktop) leaves the ~1.5 GiB headroom that
+  keeps 240K stable with ~2.2 GiB headroom. Keep ENABLE_TOOLS/MTP as preset below.
 
 .EXAMPLE
   powershell -File start-qwen38-27b-ablit-xpu-int4.ps1
@@ -22,13 +34,13 @@ $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 # ---- fixed int4 preset ------------------------------------------------
 $modelPath = Join-Path $repoRoot "model"
 $modelName = "huihui-qwen38-27b-abliterated-int4"
-$maxModelLen = 100000
+$maxModelLen = 240000
 $mtpTokens = 3
 $draftInt4 = 0            # match image default: MTP draft stays BF16 (NO INT4 draft quant)
 $maxImages = 16
 $prefixCache = 1
 $enforceEager = 0
-$kvMemBytes = 4617089843     # 4.5 GiB KV pool for 100K ctx
+$kvMemBytes = 9663676416     # 9.0 GiB KV pool for 240K ctx (MTP3)
 
 Write-Host "[start] INT4 preset: $modelPath"
 Write-Host "[start] maxModelLen=$maxModelLen MTP=$mtpTokens KV=$kvMemBytes eager=$enforceEager"

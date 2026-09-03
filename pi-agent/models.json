@@ -1,64 +1,64 @@
 {
    "providers": {
-    "local-xpu": {
-      "baseUrl": "http://localhost:8000/v1",
-      "api": "openai-completions",
-      "apiKey": "local",
-      "models": [
-        {
-          "id": "huihui-qwen38-27b-abliterated-int4",
-          "name": "Huihui Qwen3.8-27B Abliterated INT4+MTP Arc Pro B70 (:8000)",
-          "reasoning": true,
-          "input": [
-            "text",
-            "image"
-          ],
-          "contextWindow": 100000,
-          "maxTokens": 32768,
-          "thinkingLevelMap": {
-            "minimal": null,
-            "low": "low",
-            "medium": "medium",
-            "high": null,
-            "xhigh": "xhigh",
-            "max": null
-          },
-          "compat": {
-            "supportsDeveloperRole": false,
-            "supportsReasoningEffort": true
-          }
-        }
-      ]
-    },
-    "local-cuda": {
-      "baseUrl": "http://localhost:8100/v1",
-      "api": "openai-completions",
-      "apiKey": "local",
-      "models": [
-        {
-          "id": "huihui-qwen38-27b-abliterated-nvfp4",
-          "name": "Huihui Qwen3.8-27B Abliterated NVFP4+MTP (RTX 5090 CUDA :8100)",
-          "reasoning": true,
-          "input": [
-            "text",
-            "image"
-          ],
-          "contextWindow": 100000,
-          "maxTokens": 32768,
-          "thinkingLevelMap": {
-            "minimal": null,
-            "low": "low",
-            "medium": "medium",
-            "high": null,
-            "xhigh": "xhigh",
-            "max": null
-          },
-          "compat": {
-            "supportsDeveloperRole": false,
-            "supportsReasoningEffort": true
-          }
-        }
-      ]
-    }
-  }
+      "local-xpu": {
+         "baseUrl": "http://localhost:8000/v1",
+         "api": "openai-completions",
+         "apiKey": "local",
+         "models": [
+            {
+               "id": "huihui-qwen38-27b-abliterated-int4",
+               "name": "Huihui Qwen3.8-27B Abliterated INT4+MTP Arc Pro B70 (:8000)",
+               "reasoning": true,
+               "input": [
+                  "text",
+                  "image"
+               ],
+               "contextWindow": 240000,
+               "maxTokens": 32768,
+               "thinkingLevelMap": {
+                  "minimal": null,
+                  "low": "low",
+                  "medium": "medium",
+                  "high": null,
+                  "xhigh": "xhigh",
+                  "max": null
+               },
+               "compat": {
+                  "supportsDeveloperRole": false,
+                  "supportsReasoningEffort": true
+               }
+            }
+         ]
+      },
+      "local-cuda": {
+         "baseUrl": "http://localhost:8100/v1",
+         "api": "openai-completions",
+         "apiKey": "local",
+         "models": [
+            {
+               "id": "huihui-qwen38-27b-abliterated-nvfp4",
+               "name": "Huihui Qwen3.8-27B Abliterated NVFP4+MTP (RTX 5090 CUDA :8100)",
+               "reasoning": true,
+               "input": [
+                  "text",
+                  "image"
+               ],
+               "contextWindow": 100000,
+               "maxTokens": 32768,
+               "thinkingLevelMap": {
+                  "minimal": null,
+                  "low": "low",
+                  "medium": "medium",
+                  "high": null,
+                  "xhigh": "xhigh",
+                  "max": null
+               },
+               "compat": {
+                  "supportsDeveloperRole": false,
+                  "supportsReasoningEffort": true
+               }
+            }
+         ]
+      }
+   }
 }
