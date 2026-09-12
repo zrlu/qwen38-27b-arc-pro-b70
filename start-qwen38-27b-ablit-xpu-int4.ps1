@@ -3,10 +3,16 @@
   Launch the B70 (Arc Pro) vLLM container with the legacy GPTQ INT4 model.
 
   Fixed preset (no parameters needed):
+    - image        : zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix
+                     (vLLM 0.28.0 XPU + kernels 0.1.12.3 + hybrid MTP/
+                     prefix-cache correctness fixes; see
+                     docker/opt-qwen38/README-corrections.md)
     - model        : C:\LocalLLM\qwen38-27b-ablit-xpu\model (GPTQ INT4, fp16)
-    - maxModelLen  : 240000 (keeps ~0.75 GiB extra VRAM headroom vs 262K)
-    - MTP          : 3 (native MTP spec decode, INT4 draft)
-    - KV cache     : manual 9.0 GiB pool for 240K (MTP3, fp8)
+    - maxModelLen  : 200000 (server ceiling; costs no VRAM - the client window
+                     is pi's contextWindow = 150000, see the block below)
+    - MTP          : 3 (native MTP spec decode, BF16 draft)
+    - KV cache     : manual 7.5 GiB pool = 205,714 tokens (150k session +
+                     ~55k prefix-cache slack). Do not shrink it.
     - graph        : ENFORCE_EAGER=0 (default; GPU graph + breakable cudagraph
                      is on for throughput, see README "Breakable CUDA graph")
     - served name  : huihui-qwen38-27b-abliterated-int4
@@ -32,15 +38,67 @@ $containerName = "qwen38-27b-ablit-xpu"
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # ---- fixed int4 preset ------------------------------------------------
+$image = "zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix"
 $modelPath = Join-Path $repoRoot "model"
 $modelName = "huihui-qwen38-27b-abliterated-int4"
-$maxModelLen = 240000
-$mtpTokens = 3
-$draftInt4 = 0            # match image default: MTP draft stays BF16 (NO INT4 draft quant)
-$maxImages = 16
-$prefixCache = 1
-$enforceEager = 0
-$kvMemBytes = 9663676416     # 9.0 GiB KV pool for 240K ctx (MTP3)
+
+# A/B overrides for experiments. Unset -> the baked-in production default.
+function EnvInt($name, $default) {
+  $v = [Environment]::GetEnvironmentVariable($name)
+  if ($v) { [int]$v } else { $default }
+}
+function EnvStr($name, $default) {
+  $v = [Environment]::GetEnvironmentVariable($name)
+  if ($v) { "$v" } else { $default }
+}
+
+# ---- context sizing ---------------------------------------------------
+# Two different numbers, on purpose:
+#
+#   MAX_MODEL_LEN = 200000   server-side ceiling. Costs no VRAM (the KV pool is
+#                            sized by KV_CACHE_MEMORY_BYTES, not by this), so it
+#                            stays generous.
+#   pi contextWindow = 150000 the working window (pi-agent/models.json). pi
+#                            compacts at contextWindow - reserveTokens
+#                            (150000 - 32768 = ~117k prompt), so a session
+#                            never eats the whole cache.
+#
+# Why that matters: the KV pool holds 205,714 tokens. Whatever a session is
+# long must stay resident, and the leftover is what the prefix cache can keep
+# for the NEXT turn. A 200k session leaves ~0 -> the hit boundary slides,
+# every turn re-prefills and TTFT goes to tens of seconds. At a 150k window
+# the pool keeps ~55k of slack, and warm turns stay at 91-96% cache hits with
+# ~10-13 s TTFT. Decode speed itself is flat vs context (32-49 tok/s from 8k
+# to 100k), so this is a cache/latency knob, not a throughput knob.
+#
+# Do NOT shrink KV_MEM_BYTES to match a smaller context: the slack IS the
+# feature. 7.5 GiB = 205,714 tokens = session (150k) + slack (~55k).
+$maxModelLen = EnvInt "B70_MAX_MODEL_LEN" 200000
+$mtpTokens = EnvInt "B70_MTP_TOKENS" 3
+$draftInt4 = EnvInt "B70_DRAFT_INT4" 0   # BF16 MTP draft (no INT4 draft quant)
+$maxImages = EnvInt "B70_MM_IMAGES" 16
+$prefixCache = EnvInt "B70_PREFIX_CACHE" 1
+$enforceEager = EnvInt "B70_ENFORCE_EAGER" 0
+$kvCacheDtype = EnvStr "B70_KV_CACHE_DTYPE" "fp8"
+$kvMemBytes = EnvInt "B70_KV_MEM_BYTES" 8053063680   # 7.5 GiB pool = 205,714 tokens: 150k session + ~55k prefix-cache slack
+$maxNumBatched = EnvInt "B70_MAX_NUM_BATCHED" 8192
+$maxNumSeqs = EnvInt "B70_MAX_NUM_SEQS" 1
+$gpuMemUtil = EnvStr "B70_GPU_MEM_UTIL" "0.88"
+# 1 / 0 / unset: force vLLM's V2 / V1 model runner, or leave vLLM's default.
+# On WSL2 the 0.29.0 V2 runner makes the oneDNN W4A16 GEMM JIT and the WSL
+# OpenCL driver has no compiler -> "could not create a primitive". Harmless
+# (unset) on 0.28.0, which is the shipped default.
+$v2Runner = EnvStr "B70_V2_RUNNER" ""
+$image = EnvStr "B70_IMAGE" $image
+# Correctness fixes for hybrid MTP + align-mode prefix caching.
+# accept-sync + backward-copy are required. eagle-drop is upstream-correct but
+# on 0.28.0 it makes a hit land on a state boundary the scheduler never
+# materialized -> NaN logits (token 0, "!"). Upstream 0.29.0 (#53945) moves the
+# materialization down to match; until we upgrade, keep it off. Verified: a
+# 40-turn / 121k-token agentic soak with a context needle is clean.
+$fixAcceptSync = EnvInt "B70_FIX_ACCEPT_SYNC" 1
+$fixBackwardCopy = EnvInt "B70_FIX_BACKWARD_COPY" 1
+$fixEagleDrop = EnvInt "B70_FIX_EAGLE_DROP" 0
 
 Write-Host "[start] INT4 preset: $modelPath"
 Write-Host "[start] maxModelLen=$maxModelLen MTP=$mtpTokens KV=$kvMemBytes eager=$enforceEager"
@@ -48,6 +106,10 @@ Write-Host "[start] maxModelLen=$maxModelLen MTP=$mtpTokens KV=$kvMemBytes eager
 # Create placeholder file (WSL interop shims)
 $placeholderFile = Join-Path $env:TEMP "placeholder-empty"
 New-Item -Path $placeholderFile -ItemType File -Force | Out-Null
+
+# Optional extra -e args
+$extraEnv = @()
+if ($v2Runner -ne "") { $extraEnv += @("-e", "VLLM_USE_V2_MODEL_RUNNER=$v2Runner") }
 
 # Host start.sh
 $startSh = Join-Path $repoRoot "docker\opt-qwen38\start.sh"
@@ -68,7 +130,7 @@ docker run -d --name $containerName `
   -v "${startSh}:/opt/qwen38/start.sh:ro" `
   --mount type=bind,source=${modelPath},target=/model `
   -e MODEL_NAME=$modelName `
-  -e LD_LIBRARY_PATH=/usr/lib/wsl/lib:/tmp/ucx_install/lib:/opt/venv/lib:/usr/local/lib `
+  -e LD_LIBRARY_PATH=/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib:/opt/venv/lib:/usr/local/lib `
   -e VLLM_TARGET_DEVICE=xpu `
   -e ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE `
   -e ZE_AFFINITY_MASK=0 `
@@ -84,15 +146,19 @@ docker run -d --name $containerName `
   -e MTP_TOKENS=$mtpTokens `
   -e DRAFT_INT4=$draftInt4 `
   -e MAX_MODEL_LEN=$maxModelLen `
-  -e KV_CACHE_DTYPE=fp8 `
+  -e KV_CACHE_DTYPE=$kvCacheDtype `
   -e PREFIX_CACHE=$prefixCache `
   -e ENFORCE_EAGER=$enforceEager `
-  -e MAX_NUM_SEQS=1 `
-  -e GPU_MEMORY_UTILIZATION=0.88 `
+  -e MAX_NUM_SEQS=$maxNumSeqs `
+  -e GPU_MEMORY_UTILIZATION=$gpuMemUtil `
   -e KV_CACHE_MEMORY_BYTES=$kvMemBytes `
-  -e MAX_NUM_BATCHED_TOKENS=8192 `
+  -e MAX_NUM_BATCHED_TOKENS=$maxNumBatched `
   -e MM_IMAGES=$maxImages `
-  zrlu/qwen38-27b-arc-pro-b70:latest
+  $extraEnv `
+  -e B70_FIX_ACCEPT_SYNC=$fixAcceptSync `
+  -e B70_FIX_BACKWARD_COPY=$fixBackwardCopy `
+  -e B70_FIX_EAGLE_DROP=$fixEagleDrop `
+  $image
 
 if ($LASTEXITCODE -ne 0) {
   Write-Host "[start] docker run FAILED (rc=$LASTEXITCODE)"
@@ -100,23 +166,25 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # --- Wait for readiness ---
+# curl.exe (Win10+) bypasses any system proxy env var that makes
+# Invoke-WebRequest silently fail against 127.0.0.1.
 Write-Host "[start] Waiting for vLLM on :8000..."
-$maxAttempts = 150
+$maxAttempts = 240
 for ($i = 1; $i -le $maxAttempts; $i++) {
-  try {
-    $response = Invoke-WebRequest -Uri "http://localhost:8000/health" -TimeoutSec 2 -ErrorAction SilentlyContinue
-    if ($response.StatusCode -eq 200) {
-      Write-Host "[start] Up after $($i*5)s."
-      exit 0
-    }
-  } catch {
-    # Not ready yet
+  & curl.exe --silent --max-time 3 --noproxy '*' -o NUL "http://127.0.0.1:8000/health" 2>$null
+  if ($LASTEXITCODE -eq 0) {
+    Write-Host "[start] Up after $($i*5)s."
+    exit 0
   }
-
-  if ($i -eq $maxAttempts) {
-    Write-Host "[start] Still not ready after ~12.5 min - check: docker logs $containerName"
+  # bail out early if the container died (fail-closed patch / OOM)
+  $running = (docker inspect -f '{{.State.Running}}' $containerName 2>$null)
+  if ($running -ne "true") {
+    Write-Host "[start] Container exited during boot - inspect: docker logs $containerName"
     exit 1
   }
-
+  if ($i -eq $maxAttempts) {
+    Write-Host "[start] Still not ready after ~20 min - check: docker logs $containerName"
+    exit 1
+  }
   Start-Sleep -Seconds 5
 }

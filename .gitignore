@@ -1,2 +1,6 @@
 model
 model-mixed
+
+# Python bytecode
+__pycache__/
+*.pyc

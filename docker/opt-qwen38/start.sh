@@ -41,6 +41,24 @@ python /opt/qwen38/patch_draft_lmhead_int4.py
 python /opt/qwen38/patch_xpu_single_gpu_warmup.py
 python /opt/qwen38/patch_tile_mask.py
 
+# ---- hybrid MTP + prefix-caching correctness ---------------------------
+# vLLM's V1 runner + mamba_cache_mode="align" + MTP silently corrupts the
+# recurrent state and the accepted-token counter. The corruption is written
+# back into the SSM/prefix cache, so it produces progressive degeneration
+# (token 0 == "!") at long context and only a restart clears it. These ports
+# are fail-closed: a moved upstream anchor aborts the boot instead of serving
+# a silently-wrong model. See docker/opt-qwen38/README-corrections.md.
+#
+# backward-copy (vllm#53505) and accepted-sync (vllm#53919) are required.
+# eagle-drop (vllm#48375) is DEFAULT OFF on 0.28.0: it makes a hit land on a
+# state boundary the scheduler never materialized, so the logits go NaN.
+# Upstream 0.29.0 #53945 moves the materialization to match; re-test the drop
+# after upgrading.
+# A/B: B70_FIX_BACKWARD_COPY=0 / B70_FIX_ACCEPT_SYNC=0 / B70_FIX_EAGLE_DROP=1
+python /opt/qwen38/patch_fix_backward_copy.py
+python /opt/qwen38/patch_fix_eagle_drop.py
+python /opt/qwen38/patch_fix_accepted_sync.py
+
 # ---- MTP draft quantization (INT4 model only) --------------------------
 if (( DRAFT_INT4 > 0 )); then
   python /opt/qwen38/patch_draft_mtp_int4_v2.py

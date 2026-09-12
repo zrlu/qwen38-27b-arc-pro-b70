@@ -13,7 +13,7 @@
                   "text",
                   "image"
                ],
-               "contextWindow": 240000,
+               "contextWindow": 150000,
                "maxTokens": 32768,
                "thinkingLevelMap": {
                   "minimal": null,
