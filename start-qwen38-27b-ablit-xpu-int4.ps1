@@ -3,12 +3,14 @@
   Launch the B70 (Arc Pro) vLLM container with the legacy GPTQ INT4 model.
 
   Fixed preset (no parameters needed):
-    - image        : zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix
-                     (vLLM 0.28.0 XPU + kernels 0.1.12.3 + hybrid MTP/
-                     prefix-cache correctness fixes; see
-                     docker/opt-qwen38/README-corrections.md)
-                     Experimental, faster but intermittently wedges:
-                     :0.29.1-nightly (see README "Upgrading to vLLM 0.29.1")
+    - image        : zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly   (DEFAULT)
+                     vLLM 0.29.1 nightly + kernels 0.1.14.1, Model Runner V2,
+                     no runtime patches. Fastest and it has the upstream
+                     mamba align-cache fixes. Needs the 2026-09-16+ Intel
+                     driver, and it can wedge intermittently (see README
+                     "Upgrading to vLLM 0.29.1 nightly").
+                     Stable fallback: :0.28.0-apcfix, see
+                     ./start-qwen38-27b-ablit-xpu-stable.ps1
     - model        : C:\LocalLLM\qwen38-27b-ablit-xpu\model (GPTQ INT4, fp16)
     - maxModelLen  : 200000 (server ceiling; costs no VRAM - the client window
                      is pi's contextWindow = 150000, see the block below)
@@ -42,7 +44,7 @@ $containerName = "qwen38-27b-ablit-xpu"
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # ---- fixed int4 preset ------------------------------------------------
-$image = "zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix"
+$image = "zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly"
 $modelPath = Join-Path $repoRoot "model"
 $modelName = "huihui-qwen38-27b-abliterated-int4"
 
@@ -111,35 +113,32 @@ $fixEagleDrop = EnvInt "B70_FIX_EAGLE_DROP" 0
 # image's own ENV (0.29.1-nightly sets none; the 0.28 image has no default, so
 # start.sh falls back to full).
 $patchSet = EnvStr "B70_PATCH_SET" ""
-if ($patchSet -ne "") { $extraEnv += @("-e", "B70_PATCH_SET=$patchSet") }
+# Restrict the SYCL runtime's exposed backends. "level_zero:*" hides the OpenCL
+# backend, which is what makes oneDNN try to JIT an OCL primitive and fail on
+# WSL2 (CL_COMPILER_NOT_AVAILABLE -> "could not create a primitive").
+$oneapiSelector = EnvStr "B70_ONEAPI_SELECTOR" ""
+# Library search order. The container's own libs go first: the WSL driver ships
+# libigdfcl.so.2, which otherwise shadows the container's IGC 2.38.2 in
+# /usr/local/lib and breaks oneDNN's W4A16 GEMM the same way.
+# NOTE: the stable fallback image (0.28.0-apcfix) needs the WSL driver's libs
+# FIRST instead -- ./start-qwen38-27b-ablit-xpu-stable.ps1 sets that for you:
+#   B70_LD_LIBRARY_PATH=/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib:/opt/venv/lib:/usr/local/lib
+$ldPath = EnvStr "B70_LD_LIBRARY_PATH" "/usr/local/lib:/opt/venv/lib:/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib"
 
 Write-Host "[start] INT4 preset: $modelPath"
 Write-Host "[start] image=$image"
 Write-Host "[start] draftLmheadInt4=$draftLmheadInt4 patchSet='$patchSet' ldPath=$ldPath"
 Write-Host "[start] maxModelLen=$maxModelLen MTP=$mtpTokens KV=$kvMemBytes eager=$enforceEager"
 
+# Optional extra -e args. Built only after every knob above is resolved.
+$extraEnv = @()
+if ($v2Runner -ne "") { $extraEnv += @("-e", "VLLM_USE_V2_MODEL_RUNNER=$v2Runner") }
+if ($oneapiSelector -ne "") { $extraEnv += @("-e", "ONEAPI_DEVICE_SELECTOR=$oneapiSelector") }
+if ($patchSet -ne "") { $extraEnv += @("-e", "B70_PATCH_SET=$patchSet") }
+
 # Create placeholder file (WSL interop shims)
 $placeholderFile = Join-Path $env:TEMP "placeholder-empty"
 New-Item -Path $placeholderFile -ItemType File -Force | Out-Null
-
-# Optional extra -e args
-$extraEnv = @()
-if ($v2Runner -ne "") { $extraEnv += @("-e", "VLLM_USE_V2_MODEL_RUNNER=$v2Runner") }
-# Restrict the SYCL runtime's exposed backends. Setting e.g. "level_zero:*" hides
-# the OpenCL backend, which is what makes oneDNN try to JIT an OCL primitive and
-# fail on WSL2 (CL_COMPILER_NOT_AVAILABLE -> "could not create a primitive").
-$oneapiSelector = EnvStr "B70_ONEAPI_SELECTOR" ""
-if ($oneapiSelector -ne "") { $extraEnv += @("-e", "ONEAPI_DEVICE_SELECTOR=$oneapiSelector") }
-# Library search order. The default puts the WSL driver first (needed for
-# libcuda/libdxcore/libwsl_compute_helper), but that also shadows the
-# container's own IGC (/usr/local/lib, 2.38.2) with the Windows driver's
-# libigdfcl.so.2. Override to test IGC version coupling.
-$ldPath = EnvStr "B70_LD_LIBRARY_PATH" "/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib:/opt/venv/lib:/usr/local/lib"
-# NOTE: to run the experimental 0.29.1-nightly image instead, set
-#   B70_IMAGE=zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly
-#   B70_LD_LIBRARY_PATH=/usr/local/lib:/opt/venv/lib:/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib
-# (the nightly needs the container's own IGC first, and B70_PATCH_SET=none is
-# baked into that image's ENV).
 
 # Host start.sh
 $startSh = Join-Path $repoRoot "docker\opt-qwen38\start.sh"

@@ -1,12 +1,11 @@
 <#
 .SYNOPSIS
-  Run the EXPERIMENTAL vLLM 0.29.1-nightly stack instead of the stable 0.28.
+  Run the vLLM 0.29.1-nightly stack explicitly.
 
-  Use this when you want the upstream mamba align-cache fixes (#53945 / #54713 /
-  #55450) and the extra speed (~10-20 % over 0.28 + draft-INT4). Switch back by
-  running the plain launcher:
-
-      ./start-qwen38-27b-ablit-xpu-int4.ps1
+  This is now the DEFAULT of the plain launcher
+  (./start-qwen38-27b-ablit-xpu-int4.ps1), so this wrapper is just an explicit,
+  self-documenting way to ask for it. The stable fallback is
+  ./start-qwen38-27b-ablit-xpu-stable.ps1.
 
 .REQUIREMENTS
   Intel Arc Windows driver 32.0.101.9030 (2026-09-16) or newer. On older drivers

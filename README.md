@@ -9,8 +9,8 @@ Images:
 
 | Tag | What |
 |---|---|
-| `zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix` | **current / recommended**: vLLM 0.28.0 + the vendored mamba correctness patches + the draft-INT4 overlay. Stable. |
-| `zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly` | experimental: vLLM 0.29.1 nightly + kernels 0.1.14.1, no runtime patches. ~10-20 % faster than 0.28 + overlay, but it **wedges intermittently** (see [Upgrading](#upgrading-to-vllm-0291-nightly)). Needs the 2026-09-16+ Intel Windows driver. |
+| `zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly` | **current / default**: vLLM 0.29.1 nightly + kernels 0.1.14.1, no runtime patches. Fastest, and it has the upstream mamba align-cache fixes. Needs the 2026-09-16+ Intel Windows driver; can wedge intermittently (see [Upgrading](#upgrading-to-vllm-0291-nightly-experimental)). |
+| `zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix` | **stable fallback**: vLLM 0.28.0 + the vendored mamba correctness patches + the draft-INT4 overlay. ~10-20 % slower, no driver requirement, never wedged in testing. |
 
 | Artifact | Link |
 |---|---|
@@ -33,9 +33,9 @@ every 0.29.x build unusable here, and the nightly is genuinely faster
 intermittently** — 3 of 4 runs of a 7-distinct-prompt sequence hung on the 6th
 request (EngineCore 100 % CPU, `Running: 1`, no progress, only a restart
 recovers), and there were two intermittent boot segfaults. The overlay alone
-recovers most of the speed on the stable 0.28 stack, so **0.28.0-apcfix +
-overlay is the recommended production config** and the nightly is kept as an
-experimental tag.
+recovers most of the speed on the stable 0.28 stack. Both are kept:
+**0.29.1-nightly is the default** (faster, and it fixes the 0 %-acceptance
+collapse), with **0.28.0-apcfix + overlay as the one-command stable fallback**.
 
 **Original report (2026-09-12).**
 
@@ -111,10 +111,10 @@ New repo files: `docker/opt-qwen38/patch_fix_*.py`,
 First start auto-downloads the HF model (~18 GB) into `/model`, then serves in
 ~3.5-4 min.
 
-> **Requirement for the experimental 0.29.1-nightly image:** Intel Arc Windows
+> **Requirement for the default (0.29.1-nightly) image:** Intel Arc Windows
 > driver **32.0.101.9030 (2026-09-16) or newer**. On older drivers its MTP path
-> hangs on any prefill above ~130 tokens. The shipped 0.28 image does not need
-> it. See [Upgrading](#upgrading-to-vllm-0291-nightly-experimental).
+> hangs on any prefill above ~130 tokens. The `stable` fallback image does not
+> need it. See [Upgrading](#upgrading-to-vllm-0291-nightly-experimental).
 
 Native Linux: replace `--device /dev/dxg` with `--device /dev/dri` +
 `--group-add $(stat -c '%g' /dev/dri/render*)`, drop the wsl-lib mounts.
@@ -220,7 +220,8 @@ never materialized and the logits go NaN. The soak table in
 | prefill tok/s | 1400-1560 | 1441-2246 | 1643-2500 | 1394-2530 |
 
 The shipped config (**0.28.0-apcfix + overlay**) is ~1.5x the original 0.28 at
-8 k and ~1.4x at 100 k, without the nightly's stability problems.
+8 k and ~1.4x at 100 k. The nightly (now the default) adds another ~10-20 %
+on top.
 
 Agentic soak on the nightly (prefix-cache warm, 79-94 % hit rate): 37-52 tok/s
 decode, 7-15 s TTFT at 100-120 k tokens. On 0.28 (no overlay) the same soak was
@@ -459,12 +460,14 @@ the 0.28-era rewrite. Do not set `B70_PATCH_SET=full` on the nightly.
 ### Switching
 
 ```powershell
-./start-qwen38-27b-ablit-xpu-nightly.ps1   # run the nightly
-./start-qwen38-27b-ablit-xpu-int4.ps1      # back to the stable 0.28 + overlay
+./start-qwen38-27b-ablit-xpu-int4.ps1       # DEFAULT: 0.29.1-nightly
+./start-qwen38-27b-ablit-xpu-nightly.ps1    # same thing, explicit
+./start-qwen38-27b-ablit-xpu-stable.ps1     # fallback: 0.28.0-apcfix + overlay
 ```
 
-The nightly wrapper just sets `B70_IMAGE` and `B70_LD_LIBRARY_PATH` and calls the
-main launcher (`B70_PATCH_SET=none` is baked into that image's ENV).
+The wrappers just set `B70_IMAGE` and the matching `B70_LD_LIBRARY_PATH` and
+call the main launcher (`B70_PATCH_SET=none` is baked into the nightly image's
+ENV; the 0.28 image falls back to `full`).
 
 ### Rollback
 
