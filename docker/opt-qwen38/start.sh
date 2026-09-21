@@ -42,7 +42,8 @@ python /opt/qwen38/diagnose.py
 #           vllm#53505). For a newer vLLM that already has #53945/#54713/#55450.
 #   none    serve vLLM untouched.
 # The 0.29.1-nightly image sets `none`: applying the 0.28-era patches on top of
-# upstream's own fixes makes the engine wedge.
+# upstream's own fixes makes the engine wedge. The draft-INT4 overlay is
+# independent of PATCH_SET and is driven by B70_DRAFT_LMHEAD_INT4=1.
 PATCH_SET="${B70_PATCH_SET:-full}"
 case "$PATCH_SET" in full|minimal|none) ;; *) echo "[start] bad B70_PATCH_SET=$PATCH_SET"; exit 1 ;; esac
 echo "[start] B70_PATCH_SET=$PATCH_SET"
@@ -54,6 +55,15 @@ python /opt/qwen38/patch_gdn_mixed_split_v5.py
 python /opt/qwen38/patch_draft_lmhead_int4.py
 python /opt/qwen38/patch_xpu_single_gpu_warmup.py
 python /opt/qwen38/patch_tile_mask.py
+fi
+
+# ---- draft-INT4 overlay (orthogonal to PATCH_SET) ----------------------
+# Installs the code path only; it stays inert unless B70_DRAFT_LMHEAD_INT4=1.
+# It quantizes a PRIVATE INT4 copy of the draft's lm_head into
+# model._b70_lmhead_int4 -- the target's fp16 lm_head is never mutated, so the
+# verification path is unchanged and greedy output is bit-identical.
+if [ "${B70_DRAFT_LMHEAD_INT4:-0}" = "1" ]; then
+python /opt/qwen38/patch_draft_lmhead_int4.py
 fi
 
 if [ "$PATCH_SET" != "none" ]; then
@@ -78,12 +88,15 @@ python /opt/qwen38/patch_fix_accepted_sync.py
 fi
 
 # ---- MTP draft quantization (INT4 model only) --------------------------
+# DRAFT_INT4=1 enables BOTH overlay phases (LM head + MTP linears). The LM-head
+# phase can also be enabled on its own with B70_DRAFT_LMHEAD_INT4=1, so that
+# variable is never unset here -- only the MTP-linear phase is scoped to
+# DRAFT_INT4.
 if (( DRAFT_INT4 > 0 )); then
   python /opt/qwen38/patch_draft_mtp_int4_v2.py
   export B70_DRAFT_LMHEAD_INT4=1
   export B70_DRAFT_MTP_INT4=1
 else
-  unset B70_DRAFT_LMHEAD_INT4 2>/dev/null || true
   unset B70_DRAFT_MTP_INT4 2>/dev/null || true
 fi
 

@@ -7,10 +7,14 @@
                      (vLLM 0.28.0 XPU + kernels 0.1.12.3 + hybrid MTP/
                      prefix-cache correctness fixes; see
                      docker/opt-qwen38/README-corrections.md)
+                     Experimental, faster but intermittently wedges:
+                     :0.29.1-nightly (see README "Upgrading to vLLM 0.29.1")
     - model        : C:\LocalLLM\qwen38-27b-ablit-xpu\model (GPTQ INT4, fp16)
     - maxModelLen  : 200000 (server ceiling; costs no VRAM - the client window
                      is pi's contextWindow = 150000, see the block below)
     - MTP          : 3 (native MTP spec decode, BF16 draft)
+    - draft INT4   : ON (B70_DRAFT_LMHEAD_INT4=1) - INT4 copy of the draft's
+                     LM head only; +20-55% decode, output bit-identical
     - KV cache     : manual 7.5 GiB pool = 205,714 tokens (150k session +
                      ~55k prefix-cache slack). Do not shrink it.
     - graph        : ENFORCE_EAGER=0 (default; GPU graph + breakable cudagraph
@@ -38,7 +42,7 @@ $containerName = "qwen38-27b-ablit-xpu"
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # ---- fixed int4 preset ------------------------------------------------
-$image = "zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly"
+$image = "zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix"
 $modelPath = Join-Path $repoRoot "model"
 $modelName = "huihui-qwen38-27b-abliterated-int4"
 
@@ -76,6 +80,10 @@ function EnvStr($name, $default) {
 $maxModelLen = EnvInt "B70_MAX_MODEL_LEN" 200000
 $mtpTokens = EnvInt "B70_MTP_TOKENS" 3
 $draftInt4 = EnvInt "B70_DRAFT_INT4" 0   # BF16 MTP draft (no INT4 draft quant)
+# Phase S of the cookbook's draft-INT4 overlay: a private INT4 copy of the
+# draft's LM head (target's fp16 lm_head is untouched). ON by default:
+# +20-55% decode, 7/7 bit-identical greedy outputs in benchmarks/quality_ab.py.
+$draftLmheadInt4 = EnvInt "B70_DRAFT_LMHEAD_INT4" 1
 $maxImages = EnvInt "B70_MM_IMAGES" 16
 $prefixCache = EnvInt "B70_PREFIX_CACHE" 1
 $enforceEager = EnvInt "B70_ENFORCE_EAGER" 0
@@ -124,11 +132,12 @@ if ($oneapiSelector -ne "") { $extraEnv += @("-e", "ONEAPI_DEVICE_SELECTOR=$onea
 # libcuda/libdxcore/libwsl_compute_helper), but that also shadows the
 # container's own IGC (/usr/local/lib, 2.38.2) with the Windows driver's
 # libigdfcl.so.2. Override to test IGC version coupling.
-$ldPath = EnvStr "B70_LD_LIBRARY_PATH" "/usr/local/lib:/opt/venv/lib:/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib"
-# NOTE: rolling back to B70_IMAGE=...:0.28.0-apcfix also needs
-#   B70_LD_LIBRARY_PATH=/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib:/opt/venv/lib:/usr/local/lib
-# (0.28 was validated with the WSL driver's libs first; this default is the
-# order the 0.29.1 nightly needs -- see docker/Dockerfile.nightly.)
+$ldPath = EnvStr "B70_LD_LIBRARY_PATH" "/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib:/opt/venv/lib:/usr/local/lib"
+# NOTE: to run the experimental 0.29.1-nightly image instead, set
+#   B70_IMAGE=zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly
+#   B70_LD_LIBRARY_PATH=/usr/local/lib:/opt/venv/lib:/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib
+# (the nightly needs the container's own IGC first, and B70_PATCH_SET=none is
+# baked into that image's ENV).
 
 # Host start.sh
 $startSh = Join-Path $repoRoot "docker\opt-qwen38\start.sh"
@@ -164,6 +173,7 @@ docker run -d --name $containerName `
   -e TORCH_LLM_ALLREDUCE=1 `
   -e MTP_TOKENS=$mtpTokens `
   -e DRAFT_INT4=$draftInt4 `
+  -e B70_DRAFT_LMHEAD_INT4=$draftLmheadInt4 `
   -e MAX_MODEL_LEN=$maxModelLen `
   -e KV_CACHE_DTYPE=$kvCacheDtype `
   -e PREFIX_CACHE=$prefixCache `

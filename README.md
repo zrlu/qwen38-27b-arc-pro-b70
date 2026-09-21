@@ -9,8 +9,8 @@ Images:
 
 | Tag | What |
 |---|---|
-| `zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly` | **current**: vLLM 0.29.1 nightly + kernels 0.1.14.1, no runtime patches (upstream has the fixes). Needs the 2026-09-16+ Intel Windows driver. |
-| `zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix` | previous generation: vLLM 0.28.0 + the vendored mamba correctness patches. Slower (~20 %) but does not need the newer driver. **This is the rollback image.** |
+| `zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix` | **current / recommended**: vLLM 0.28.0 + the vendored mamba correctness patches + the draft-INT4 overlay. Stable. |
+| `zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly` | experimental: vLLM 0.29.1 nightly + kernels 0.1.14.1, no runtime patches. ~10-20 % faster than 0.28 + overlay, but it **wedges intermittently** (see [Upgrading](#upgrading-to-vllm-0291-nightly)). Needs the 2026-09-16+ Intel Windows driver. |
 
 | Artifact | Link |
 |---|---|
@@ -19,23 +19,23 @@ Images:
 
 ## Session report — 2026-09-12, updated 2026-09-21
 
-**Update 2026-09-21: migrated to vLLM 0.29.1 nightly.** An Intel Windows driver
-update (32.0.101.9030, 2026-09-16) removed the blocker that made every 0.29.x
-build unusable here (see [Upgrading](#upgrading-to-vllm-0291-nightly)). The
-current image is `0.29.1-nightly`, runs with **no runtime patches**, and is
-~15-25 % faster on decode with 15-40 % faster prefill:
+**Update 2026-09-21 (2): draft-INT4 overlay, +20-55 % and quality-neutral.**
+The cookbook's "phase S" overlay (a private INT4 copy of the draft's LM head;
+the target's fp16 lm_head is never mutated) is now on by default
+(`B70_DRAFT_LMHEAD_INT4=1`). It cuts the draft's per-step DRAM reads from
+4 x 2.54 GB to 4 x 0.66 GB and is verified output-neutral: see
+[Draft-INT4 overlay](#draft-int4-overlay).
 
-| context | 0.28.0 | **0.29.1 nightly** |
-|---:|---:|---:|
-| 8 k | 35 | **52.7** |
-| 16 k | 36 | **47.5** |
-| 32 k | 49 | 47.4 |
-| 64 k | 37 | 38.1 |
-| 100 k | 32 | **39.2** |
-| prefill | 1400-1560 | **1643-2500** |
-
-Agentic soak (warm prefix cache): 37-52 tok/s, TTFT 7-15 s, 79-94 % cache hits,
-needle OK every turn, 0 failures over 40 turns / 121 k tokens.
+**Update 2026-09-21 (1): migrated to vLLM 0.29.1 nightly, then back.** An Intel
+Windows driver update (32.0.101.9030, 2026-09-16) removed the blocker that made
+every 0.29.x build unusable here, and the nightly is genuinely faster
+(52.7/47.5/47.4/38.1/39.2 vs 35/36/49/37/32 tok/s at 8k-100k). But it **wedges
+intermittently** — 3 of 4 runs of a 7-distinct-prompt sequence hung on the 6th
+request (EngineCore 100 % CPU, `Running: 1`, no progress, only a restart
+recovers), and there were two intermittent boot segfaults. The overlay alone
+recovers most of the speed on the stable 0.28 stack, so **0.28.0-apcfix +
+overlay is the recommended production config** and the nightly is kept as an
+experimental tag.
 
 **Original report (2026-09-12).**
 
@@ -111,9 +111,10 @@ New repo files: `docker/opt-qwen38/patch_fix_*.py`,
 First start auto-downloads the HF model (~18 GB) into `/model`, then serves in
 ~3.5-4 min.
 
-> **Requirement for the current image:** Intel Arc Windows driver **32.0.101.9030
-> (2026-09-16) or newer**. On older drivers the MTP path hangs on any prefill
-> above ~130 tokens. See [Upgrading](#upgrading-to-vllm-0291-nightly).
+> **Requirement for the experimental 0.29.1-nightly image:** Intel Arc Windows
+> driver **32.0.101.9030 (2026-09-16) or newer**. On older drivers its MTP path
+> hangs on any prefill above ~130 tokens. The shipped 0.28 image does not need
+> it. See [Upgrading](#upgrading-to-vllm-0291-nightly-experimental).
 
 Native Linux: replace `--device /dev/dxg` with `--device /dev/dri` +
 `--group-add $(stat -c '%g' /dev/dri/render*)`, drop the wsl-lib mounts.
@@ -207,35 +208,66 @@ never materialized and the logits go NaN. The soak table in
 
 ## Throughput (measured, fresh engine, fp8 KV, MTP3, prefix cache on)
 
-**0.29.1-nightly (current image)** — `python benchmarks/bench_context.py ctx`:
+`python benchmarks/bench_context.py ctx`, decode tok/s (client post-first):
 
-| context | 8 k | 16 k | 32 k | 64 k | 100 k |
-|---|---:|---:|---:|---:|---:|
-| decode tok/s | **52.7** | **47.5** | 47.4 | 38.1 | **39.2** |
-| MTP accept | 72 % | 62 % | 67 % | 53 % | 62 % |
-| prefill tok/s | 1742 | 2500 | 1643 | 1752 | 1946 |
+| context | 0.28.0 | **0.28.0 + draft-INT4 (shipped)** | 0.29.1-nightly | nightly + draft-INT4 |
+|---:|---:|---:|---:|---:|
+| 8 k | 35 | **54.4** | 52.7 | 65.3 |
+| 16 k | 36 | **49.1** | 47.5 | 55.8 |
+| 32 k | 49 | **50.2** | 47.4 | 57.6 |
+| 64 k | 37 | **38.4** | 38.1 | 46.8 |
+| 100 k | 32 | **45.7** | 39.2 | 45.7 |
+| prefill tok/s | 1400-1560 | 1441-2246 | 1643-2500 | 1394-2530 |
 
-**0.28.0-apcfix (previous generation)** — same harness:
+The shipped config (**0.28.0-apcfix + overlay**) is ~1.5x the original 0.28 at
+8 k and ~1.4x at 100 k, without the nightly's stability problems.
 
-| context | decode tok/s | MTP accept | prefill tok/s |
-|---:|---:|---:|---:|
-| 8 k | 35 | 48 % | 1 515 |
-| 16 k | 36 | 52 % | 1 421 |
-| 32 k | 49 | 90 % | 1 501 |
-| 64 k | 37 | 63 % | 1 362 |
-| 100 k | 32 | 58 % | 1 558 |
+Agentic soak on the nightly (prefix-cache warm, 79-94 % hit rate): 37-52 tok/s
+decode, 7-15 s TTFT at 100-120 k tokens. On 0.28 (no overlay) the same soak was
+28-40 tok/s with 10-13 s TTFT.
 
-Agentic soak (prefix-cache warm, 91-96 % hit rate): 28-40 tok/s decode,
-10-13 s TTFT at 100-120 k tokens.
-
-For comparison on the same engine: MTP off = 22-26 tok/s, MTP4 = 30-42 tok/s
+Other points on the same engine: MTP off = 22-26 tok/s, MTP4 = 30-42 tok/s
 (MTP3 wins here), and prefix caching off (the safe fallback) = a 122 k-token
-turn costs ~160 s to re-prefill. All of these are `benchmarks/bench_context.py`.
+turn costs ~160 s to re-prefill.
 
 > A degraded long-running engine has been measured at ~13 tok/s at 25 k context
 > (vs ~36 fresh). If throughput drifts down over a session instead of staying
 > flat, that is the corruption accumulating — check the soak before blaming the
 > hardware.
+
+## Draft-INT4 overlay
+
+`B70_DRAFT_LMHEAD_INT4=1` (on by default in the launcher) installs
+`patch_draft_lmhead_int4.py`, the "phase S" half of the cookbook's draft-INT4
+overlay. At the first forward it quantizes a **private** INT4 g128 copy of the
+draft's LM head into `model._b70_lmhead_int4`:
+
+```
+[B70] draft LM head INT4: 2.54 GB fp16 -> 0.66 GB INT4 (ahorro 1887.2 MB/lectura)
+```
+
+The target's fp16 lm_head is **never mutated**, so verification is unchanged —
+which is why the output is bit-identical, not merely "similar".
+
+Why it is worth it: the shared BF16 lm_head is ~38 % of every decode step's DRAM
+traffic (the draft reads it once per draft position). Cutting it to INT4 removes
+~5.7 GB/step at MTP3. Measured: **+20-55 %** decode, MTP acceptance unchanged.
+
+**Quality gate** — `python benchmarks/quality_ab.py <label>` runs 7 varied
+greedy prompts and prints a SHA per prompt:
+
+| | 0.28 + overlay | 0.28 plain |
+|---|---|---|
+| 7 prompts | 7/7 **bit-identical** | — |
+| repeat run | identical to the first (deterministic) | — |
+
+On the 0.29.1 nightly the same 7 prompts were also output-neutral except one
+borderline Chinese prompt that differed in 1 of 4 runs (run-to-run noise could
+not be fully separated there; on 0.28 it is clean).
+
+Knobs: `B70_DRAFT_LMHEAD_INT4=0` disables it; `B70_DRAFT_INT4=1` additionally
+enables the MTP-linear phase ("M1"), which this model's README notes may hit a
+shape mismatch — not used here.
 
 ## Why breakable CUDA graph is enabled (VLLM_USE_BREAKABLE_CUDAGRAPH=1)
 
@@ -345,19 +377,26 @@ because it is harmless and cheap, but **do not** treat it as the `!` fix — the
 All patches are idempotent (marker-guarded) and re-apply on every container
 start, since the base vLLM image does not contain them.
 
-## Upgrading to vLLM 0.29.1 nightly
+## Upgrading to vLLM 0.29.1 nightly (experimental)
 
-The current image is `zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly`:
+**Status: experimental, not the default.** It is ~10-20 % faster than the
+shipped 0.28 + overlay, and it contains the upstream mamba align-cache fixes
+this repo used to vendor, but it **wedges intermittently**: 3 of 4 runs of a
+7-distinct-prompt sequence hung on the 6th request (EngineCore at 100 % CPU,
+`Running: 1`, no progress, only a restart recovers), and there were two
+intermittent boot segfaults (Exited 139). It is kept as an opt-in tag until
+that is understood.
+
+The image is `zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly`:
 
 ```
 vLLM 0.29.1rc1.dev422+gd05da62e9.xpu   kernels 0.1.14.1   Model Runner V2
 ```
 
-Built with `docker/Dockerfile.nightly` (`FROM vllm/vllm-openai-xpu:nightly`,
-`B70_PATCH_SET=none`). It is faster than the 0.28 generation and needs **no
-runtime patches** — upstream now contains the mamba align-cache fixes this repo
-used to vendor (#53945 / #54713 / #55450, all merged 2026-09-08..11, i.e. after
-the v0.29.0 release branch was cut).
+Built with `docker/Dockerfile.nightly`. It needs **no runtime patches** — upstream
+now contains the mamba align-cache fixes this repo used to vendor (#53945 /
+#54713 / #55450, all merged 2026-09-08..11, i.e. after the v0.29.0 release
+branch was cut).
 
 ### Two WSL2 workarounds the image bakes in (required, not tuning)
 
