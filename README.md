@@ -387,6 +387,13 @@ this repo used to vendor, but it **wedges intermittently**: 3 of 4 runs of a
 intermittent boot segfaults (Exited 139). It is kept as an opt-in tag until
 that is understood.
 
+It also fixes a failure mode the stable 0.28 stack still has: after a large
+*fresh* prefill the MTP draft acceptance can collapse to **exactly 0 %**
+(`Avg Draft acceptance rate: 0.0%`, `Mean acceptance length: 1.00`), which drops
+decode to ~15 tok/s while every draft token is still computed. That is the
+"gets slower the longer you use it" symptom, and it is why this nightly exists
+as an option.
+
 The image is `zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly`:
 
 ```
@@ -448,6 +455,16 @@ Arc driver.**
 Applying the 0.28-era patches (`patch_gdn_mixed_split_v5.py` et al.) **on top of**
 the nightly makes the engine wedge again — upstream's own handling conflicts with
 the 0.28-era rewrite. Do not set `B70_PATCH_SET=full` on the nightly.
+
+### Switching
+
+```powershell
+./start-qwen38-27b-ablit-xpu-nightly.ps1   # run the nightly
+./start-qwen38-27b-ablit-xpu-int4.ps1      # back to the stable 0.28 + overlay
+```
+
+The nightly wrapper just sets `B70_IMAGE` and `B70_LD_LIBRARY_PATH` and calls the
+main launcher (`B70_PATCH_SET=none` is baked into that image's ENV).
 
 ### Rollback
 

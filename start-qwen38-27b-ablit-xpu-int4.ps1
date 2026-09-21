@@ -114,6 +114,8 @@ $patchSet = EnvStr "B70_PATCH_SET" ""
 if ($patchSet -ne "") { $extraEnv += @("-e", "B70_PATCH_SET=$patchSet") }
 
 Write-Host "[start] INT4 preset: $modelPath"
+Write-Host "[start] image=$image"
+Write-Host "[start] draftLmheadInt4=$draftLmheadInt4 patchSet='$patchSet' ldPath=$ldPath"
 Write-Host "[start] maxModelLen=$maxModelLen MTP=$mtpTokens KV=$kvMemBytes eager=$enforceEager"
 
 # Create placeholder file (WSL interop shims)
