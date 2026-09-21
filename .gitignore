@@ -12,3 +12,4 @@ quality_ab_*.json
 
 # Triton JIT cache (persisted across container recreations)
 .triton-cache/
+engine_watchdog.log
