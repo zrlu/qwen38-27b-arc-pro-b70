@@ -10,8 +10,7 @@ Images:
 | Tag | What |
 |---|---|
 | `zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly` | **current**: vLLM 0.29.1 nightly + kernels 0.1.14.1, no runtime patches (upstream has the fixes). Needs the 2026-09-16+ Intel Windows driver. |
-| `zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix` | previous generation: vLLM 0.28.0 + the vendored mamba correctness patches. Slower (~20 %) but does not need the newer driver. |
-| `zrlu/qwen38-27b-arc-pro-b70:snapshot-0.28.0-apc-broken` | the original image, kept unchanged as the rollback point (local) |
+| `zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix` | previous generation: vLLM 0.28.0 + the vendored mamba correctness patches. Slower (~20 %) but does not need the newer driver. **This is the rollback image.** |
 
 | Artifact | Link |
 |---|---|
@@ -96,8 +95,10 @@ mostly in DRAM traffic rather than in "waiting for a fix". Analysis:
 [Headroom](#headroom-is-the-hardware-maxed-out).
 
 **Artifacts.** `zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix` (= `:latest`) is the
-shipped image; `:snapshot-0.28.0-apc-broken` is the untouched original and the
-rollback point. New repo files: `docker/opt-qwen38/patch_fix_*.py`,
+shipped image; `:0.28.0-apcfix` is the previous generation and the rollback point.
+(The pre-fix `:snapshot-0.28.0-apc-broken` reference image is no longer retained
+locally — it was only ever useful for reproducing the `!` bug, which is fixed.)
+New repo files: `docker/opt-qwen38/patch_fix_*.py`,
 `docker/opt-qwen38/README-corrections.md`, `benchmarks/bench_context.py`,
 `benchmarks/soak_hybrid_mtp.py`.
 
