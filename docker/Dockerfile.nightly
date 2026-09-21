@@ -1,0 +1,71 @@
+# Qwen3.8-27B on Intel Arc Pro B70 — vLLM 0.29.1 nightly recipe (WSL2/Docker Desktop)
+#
+# Why a separate file from Dockerfile: this generation needs two WSL-specific
+# workarounds as ENV (see below) and runs with NO runtime patches -- upstream
+# already contains the mamba align-cache fixes our 0.28.0 image had to vendor
+# (#53945 / #54713 / #55450), and applying the 0.28-era patches on top of it
+# makes the engine wedge. Keeping the recipes separate means a rollback to
+# `snapshot-0.28.0-apc-broken` or `0.28.0-apcfix` still gets its own validated
+# defaults instead of inheriting these.
+#
+# Build:
+#   docker build -t zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly docker -f docker/Dockerfile.nightly
+#
+# Requires the 2026-09-16+ Intel Windows driver (32.0.101.9030). On the older
+# driver the MTP path hangs on any prefill > ~130 tokens.
+
+ARG BASE_IMAGE=vllm/vllm-openai-xpu:nightly
+FROM ${BASE_IMAGE}
+
+# Create stub files to prevent NVIDIA library lookups on WSL2/Arc systems
+RUN mkdir -p /usr/lib/wsl/lib && \
+    touch /usr/lib/wsl/lib/libnvidia-ml.so.1 && \
+    touch /usr/lib/wsl/lib/libcuda.so.1
+
+COPY opt-qwen38/ /opt/qwen38/
+
+ENV CUDA_VISIBLE_DEVICES="" VLLM_ALLOW_RUNTIME_PLUGIN_REGISTER=1
+
+# --- WSL2 workarounds (required, not tuning knobs) ------------------------
+# 1. Library search order. The default puts /usr/lib/wsl/lib first, which is
+#    needed for libcuda/libdxcore/libwsl_compute_helper, but it also shadows the
+#    container's own IGC (/usr/local/lib, 2.38.2) with the Windows driver's
+#    libigdfcl.so.2. That ABI mismatch makes oneDNN's GPTQ W4A16 GEMM report
+#    CL_COMPILER_NOT_AVAILABLE -> "could not create a primitive" on any prefill
+#    >= ~64 tokens. Putting the container's own libs first fixes it.
+# 2. ONEAPI_DEVICE_SELECTOR hides the SYCL OpenCL backend so oneDNN cannot
+#    prefer an OCL engine that cannot compile on WSL.
+ENV LD_LIBRARY_PATH=/usr/local/lib:/opt/venv/lib:/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib
+ENV ONEAPI_DEVICE_SELECTOR=level_zero:*
+
+# No 0.28-era runtime patches on this generation (upstream has the fixes).
+ENV B70_PATCH_SET=none
+
+# WSL2/Arc production defaults (the launcher passes these explicitly too).
+ENV VLLM_TARGET_DEVICE=xpu \
+    VLLM_TRITON_USE_TD=1 \
+    ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE \
+    ZE_AFFINITY_MASK=0 \
+    VLLM_XPU_ENABLE_XPU_GRAPH=1 \
+    VLLM_USE_BREAKABLE_CUDAGRAPH=1 \
+    PYTORCH_ALLOC_CONF=expandable_segments:True \
+    CCL_ATL_TRANSPORT=ofi \
+    CCL_ENABLE_SYCL_KERNELS=0 \
+    MTP_TOKENS=3 \
+    DRAFT_INT4=0 \
+    MAX_NUM_SEQS=1 \
+    MAX_MODEL_LEN=200000 \
+    KV_CACHE_MEMORY_BYTES=8053063680 \
+    KV_CACHE_DTYPE=fp8 \
+    GPU_MEMORY_UTILIZATION=0.88 \
+    MAX_NUM_BATCHED_TOKENS=8192 \
+    PREFIX_CACHE=1 \
+    ENFORCE_EAGER=0 \
+    MM_IMAGES=16 \
+    TOOL_CALL_PARSER=qwen3_xml \
+    MODEL_BOOTSTRAP=1 \
+    HF_REPO=zrlu/Huihui-Qwen3.8-27B-abliterated-GPTQ-Int4-sym-G128-MTP-BF16-B70
+
+EXPOSE 8000
+LABEL version="0.29.1-nightly"
+ENTRYPOINT ["bash", "/opt/qwen38/start.sh"]

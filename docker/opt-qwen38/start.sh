@@ -34,12 +34,29 @@ if [ "$MODEL_BOOTSTRAP" = "1" ] && [ -z "$(ls -A "$MODEL_PATH" 2>/dev/null)" ]; 
 fi
 
 python /opt/qwen38/diagnose.py
+
+# B70_PATCH_SET selects how much of the 0.28-era runtime patch stack to apply:
+#   full    (default) patch the 0.28.0 image: upstream lacks the mamba align-cache
+#           fixes, so we vendor them. Validated on 0.28.0.
+#   minimal only the still-missing correctness guard (backward mamba state copy,
+#           vllm#53505). For a newer vLLM that already has #53945/#54713/#55450.
+#   none    serve vLLM untouched.
+# The 0.29.1-nightly image sets `none`: applying the 0.28-era patches on top of
+# upstream's own fixes makes the engine wedge.
+PATCH_SET="${B70_PATCH_SET:-full}"
+case "$PATCH_SET" in full|minimal|none) ;; *) echo "[start] bad B70_PATCH_SET=$PATCH_SET"; exit 1 ;; esac
+echo "[start] B70_PATCH_SET=$PATCH_SET"
+
+if [ "$PATCH_SET" = "full" ]; then
 python /opt/qwen38/patch_mtp_nightly.py
 python /opt/qwen38/patch_mtp_boundary.py
 python /opt/qwen38/patch_gdn_mixed_split_v5.py
 python /opt/qwen38/patch_draft_lmhead_int4.py
 python /opt/qwen38/patch_xpu_single_gpu_warmup.py
 python /opt/qwen38/patch_tile_mask.py
+fi
+
+if [ "$PATCH_SET" != "none" ]; then
 
 # ---- hybrid MTP + prefix-caching correctness ---------------------------
 # vLLM's V1 runner + mamba_cache_mode="align" + MTP silently corrupts the
@@ -58,6 +75,7 @@ python /opt/qwen38/patch_tile_mask.py
 python /opt/qwen38/patch_fix_backward_copy.py
 python /opt/qwen38/patch_fix_eagle_drop.py
 python /opt/qwen38/patch_fix_accepted_sync.py
+fi
 
 # ---- MTP draft quantization (INT4 model only) --------------------------
 if (( DRAFT_INT4 > 0 )); then

@@ -9,8 +9,8 @@ Images:
 
 | Tag | What |
 |---|---|
-| `zrlu/qwen38-27b-arc-pro-b70:latest` | same image as `0.28.0-apcfix` (retagged so the default pull gets the fixed build) |
-| `zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix` | **current**: the 0.28.0 snapshot + the hybrid MTP/prefix-cache correctness fixes |
+| `zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly` | **current**: vLLM 0.29.1 nightly + kernels 0.1.14.1, no runtime patches (upstream has the fixes). Needs the 2026-09-16+ Intel Windows driver. |
+| `zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix` | previous generation: vLLM 0.28.0 + the vendored mamba correctness patches. Slower (~20 %) but does not need the newer driver. |
 | `zrlu/qwen38-27b-arc-pro-b70:snapshot-0.28.0-apc-broken` | the original image, kept unchanged as the rollback point (local) |
 
 | Artifact | Link |
@@ -18,7 +18,27 @@ Images:
 | Model (HF, huihui) | [zrlu/Huihui-Qwen3.8-27B-abliterated-GPTQ-Int4-sym-G128-MTP-BF16-B70](https://huggingface.co/zrlu/Huihui-Qwen3.8-27B-abliterated-GPTQ-Int4-sym-G128-MTP-BF16-B70) |
 | Upstream reference | [SergiioB/intel-arc-pro-b70-inference-cookbook](https://github.com/SergiioB/intel-arc-pro-b70-inference-cookbook) |
 
-## Session report — 2026-09-12
+## Session report — 2026-09-12, updated 2026-09-21
+
+**Update 2026-09-21: migrated to vLLM 0.29.1 nightly.** An Intel Windows driver
+update (32.0.101.9030, 2026-09-16) removed the blocker that made every 0.29.x
+build unusable here (see [Upgrading](#upgrading-to-vllm-0291-nightly)). The
+current image is `0.29.1-nightly`, runs with **no runtime patches**, and is
+~15-25 % faster on decode with 15-40 % faster prefill:
+
+| context | 0.28.0 | **0.29.1 nightly** |
+|---:|---:|---:|
+| 8 k | 35 | **52.7** |
+| 16 k | 36 | **47.5** |
+| 32 k | 49 | 47.4 |
+| 64 k | 37 | 38.1 |
+| 100 k | 32 | **39.2** |
+| prefill | 1400-1560 | **1643-2500** |
+
+Agentic soak (warm prefix cache): 37-52 tok/s, TTFT 7-15 s, 79-94 % cache hits,
+needle OK every turn, 0 failures over 40 turns / 121 k tokens.
+
+**Original report (2026-09-12).**
 
 **Reported symptoms.** (1) After a while the model emitted runs of `!`, worst at
 long context; restarting cleared it, but continuing the same conversation
@@ -71,7 +91,6 @@ live session and the prefix cache. Rationale and tables:
 **Upgrade attempt.** vLLM 0.29.0 was built and tested and **does not run this
 model on WSL2** (oneDNN W4A16 needs an OpenCL compiler the WSL driver does not
 provide). Full evidence: [vLLM 0.29.0 is blocked on WSL2](#vllm-0290-is-blocked-on-wsl2-gptq-int4).
-
 **Headroom.** Prefill is at the platform ceiling; decode still has ~1.7-2.3x,
 mostly in DRAM traffic rather than in "waiting for a fix". Analysis:
 [Headroom](#headroom-is-the-hardware-maxed-out).
@@ -91,6 +110,10 @@ rollback point. New repo files: `docker/opt-qwen38/patch_fix_*.py`,
 First start auto-downloads the HF model (~18 GB) into `/model`, then serves in
 ~3.5-4 min.
 
+> **Requirement for the current image:** Intel Arc Windows driver **32.0.101.9030
+> (2026-09-16) or newer**. On older drivers the MTP path hangs on any prefill
+> above ~130 tokens. See [Upgrading](#upgrading-to-vllm-0291-nightly).
+
 Native Linux: replace `--device /dev/dxg` with `--device /dev/dri` +
 `--group-add $(stat -c '%g' /dev/dri/render*)`, drop the wsl-lib mounts.
 
@@ -98,7 +121,8 @@ Tuned defaults baked in (all overridable with `B70_*` env vars, see the top of
 the script): MTP3 (the MTP sweep in `benchmarks/bench-results/
 mtp-sweep-comparison.md` shows 3 draft tokens is the throughput sweet spot on
 the B70; 4 only wins at 32k and collapses at 48k), server `MAX_MODEL_LEN=200000`,
-KV pool 7.5 GiB, `MAX_NUM_SEQS=1`, prefix cache ON, `qwen3_xml` parser.
+KV pool 7.5 GiB, `MAX_NUM_SEQS=1`, prefix cache ON, `qwen3_xml` parser,
+`B70_PATCH_SET=none` (0.29.1 image).
 Sampling (`temperature 1.0, top_k 20, top_p 0.95`) is taken from the model's
 own `generation_config.json`, which vLLM applies automatically.
 The **client** window (`pi-agent/models.json`) is **150000** — see
@@ -154,9 +178,13 @@ the running model runner is V1 (the hybrid architecture is not on the V2
 allowlist), where both apply. The corrupted state is written back into the
 cache, so it is persistent and does not self-correct.
 
-**Fix.** `docker/opt-qwen38/patch_fix_backward_copy.py` +
-`patch_fix_accepted_sync.py`, applied at container boot. Full write-up,
-evidence table and A/B knobs: `docker/opt-qwen38/README-corrections.md`.
+**Fix.** On the 0.28 generation:
+`docker/opt-qwen38/patch_fix_backward_copy.py` +
+`patch_fix_accepted_sync.py`, applied at container boot. On the current
+**0.29.1-nightly** image upstream already carries the equivalent fixes
+(#53945 / #54713 / #55450, plus Model Runner V2 which removes the
+accepted-token race by design), so it runs with `B70_PATCH_SET=none`. Full
+write-up, evidence table and A/B knobs: `docker/opt-qwen38/README-corrections.md`.
 
 **Regression test.**
 
@@ -178,8 +206,15 @@ never materialized and the logits go NaN. The soak table in
 
 ## Throughput (measured, fresh engine, fp8 KV, MTP3, prefix cache on)
 
-`python benchmarks/bench_context.py ctx` (natural Markdown corpus, exact prompt
-sizes via `/tokenize`, client post-first timing):
+**0.29.1-nightly (current image)** — `python benchmarks/bench_context.py ctx`:
+
+| context | 8 k | 16 k | 32 k | 64 k | 100 k |
+|---|---:|---:|---:|---:|---:|
+| decode tok/s | **52.7** | **47.5** | 47.4 | 38.1 | **39.2** |
+| MTP accept | 72 % | 62 % | 67 % | 53 % | 62 % |
+| prefill tok/s | 1742 | 2500 | 1643 | 1752 | 1946 |
+
+**0.28.0-apcfix (previous generation)** — same harness:
 
 | context | decode tok/s | MTP accept | prefill tok/s |
 |---:|---:|---:|---:|
@@ -309,59 +344,82 @@ because it is harmless and cheap, but **do not** treat it as the `!` fix — the
 All patches are idempotent (marker-guarded) and re-apply on every container
 start, since the base vLLM image does not contain them.
 
-## vLLM 0.29.0 is blocked on WSL2 (GPTQ-INT4)
+## Upgrading to vLLM 0.29.1 nightly
 
-A `0.29.0-apcfix` image was built and tested on 2026-09-12. It boots
-(`Using V2 Model Runner`, kernels 0.1.14.1, all nine patch scripts apply cleanly)
-but **every prefill of ≥ ~64 tokens crashes EngineCore**:
+The current image is `zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly`:
 
 ```
-onednn_verbose,v1,primitive,error,ocl,errcode -3,CL_COMPILER_NOT_AVAILABLE,src/gpu/intel/ocl/engine.cpp:325
-... vllm/model_executor/kernels/linear/mixed_precision/xpu.py:113, in apply_weights
-      out = torch.ops._xpu_C.int4_gemm_w4a16(...)
-RuntimeError: could not create a primitive
+vLLM 0.29.1rc1.dev422+gd05da62e9.xpu   kernels 0.1.14.1   Model Runner V2
 ```
 
-What the investigation established (each step measured, not inferred):
+Built with `docker/Dockerfile.nightly` (`FROM vllm/vllm-openai-xpu:nightly`,
+`B70_PATCH_SET=none`). It is faster than the 0.28 generation and needs **no
+runtime patches** — upstream now contains the mamba align-cache fixes this repo
+used to vendor (#53945 / #54713 / #55450, all merged 2026-09-08..11, i.e. after
+the v0.29.0 release branch was cut).
 
-| Probe | Result |
-|---|---|
-| Prompt 3 / 33 tokens | OK |
-| Prompt 129 / 513 / 2049 tokens | fatal `could not create a primitive` |
-| `VLLM_USE_V2_MODEL_RUNNER=0` (force V1) | same crash → not the runner |
-| kernels `0.1.13.1` instead of `0.1.14.1` | same crash |
-| kernels `0.1.12.3` with vLLM 0.29.0 | unsupported combo, engine hangs |
-| 0.28.0 image, same prompt sizes | all OK |
-| `mixed_precision/xpu.py`, `auto_gptq.py`, `MPLinearKernel.py`, `_xpu_C` w4a16 symbols | **byte-identical between 0.28 and 0.29** |
+### Two WSL2 workarounds the image bakes in (required, not tuning)
 
-`int4_gemm_w4a16` *is* `dnnl_matmul_w4a16_int4`: the XPU kernels route GPTQ
-W4A16 through oneDNN, which JIT-compiles its GPU kernels. On WSL2 the container
-has no `/dev/dri`, so OpenCL comes only from the WSL driver shim — which has the
-device but **no OpenCL compiler**. The vLLM 0.28 image's toolchain happens to
-satisfy oneDNN without a JIT; the official v0.29.0 image does not.
+**1. Library search order.** `LD_LIBRARY_PATH` must put the container's own libs
+before `/usr/lib/wsl/lib`. The WSL driver ships `libigdfcl.so.2`, which otherwise
+shadows the container's IGC 2.38.2 in `/usr/local/lib`; that ABI mix makes
+oneDNN's GPTQ W4A16 GEMM report `CL_COMPILER_NOT_AVAILABLE` → `RuntimeError:
+could not create a primitive` on any prefill of roughly ≥ 64 tokens.
 
-The 0.29.0 image was therefore removed. To retry after an Intel driver / vLLM
-XPU fix:
+```
+LD_LIBRARY_PATH=/usr/local/lib:/opt/venv/lib:/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib
+```
+
+This was the actual cause of the long-standing "0.29 is blocked" — one line of
+library ordering, not a missing OpenCL compiler.
+
+**2. `ONEAPI_DEVICE_SELECTOR=level_zero:*`** hides the SYCL OpenCL backend so
+oneDNN cannot select an OCL engine that cannot compile on WSL2.
+
+### The other blocker was the Windows driver
+
+With the two workarounds above, 0.29.1 nightly still hung on any prefill above
+~130 tokens — EngineCore at 100 % CPU with no progress, and once wedged the
+engine never served another request (`Running: 0 reqs`, `/health` still 200).
+It reproduced with **zero runtime patches**, so it was upstream, not ours.
+
+| MTP depth | 2026-09-16 driver and older | 32.0.101.9030 (2026-09-16) |
+|---|---|---|
+| 0 (no spec) | OK | OK |
+| 1 | OK | OK |
+| 2 | **hang** | OK |
+| 3 | **hang** | OK |
+
+Note the WSL-visible user-space libs under `C:\Windows\System32\lxss\lib` were
+*not* replaced by that driver update (still dated 2026-07-14); the fix came from
+the kernel-mode driver. So: **this stack requires the 2026-09-16 or newer Intel
+Arc driver.**
+
+### Patch policy
+
+`start.sh` takes `B70_PATCH_SET`:
+
+| Value | Applies | Used by |
+|---|---|---|
+| `none` | nothing | the 0.29.1-nightly image (its ENV sets it) |
+| `minimal` | only the still-missing vllm#53505 backward-state-copy guard | offered for a future vLLM that lacks it |
+| `full` (default) | the whole 0.28-era stack | the 0.28.0 image |
+
+Applying the 0.28-era patches (`patch_gdn_mixed_split_v5.py` et al.) **on top of**
+the nightly makes the engine wedge again — upstream's own handling conflicts with
+the 0.28-era rewrite. Do not set `B70_PATCH_SET=full` on the nightly.
+
+### Rollback
 
 ```powershell
-docker pull vllm/vllm-openai-xpu:v0.29.0
-docker build -t zrlu/qwen38-27b-arc-pro-b70:0.29.0-apcfix docker `
-  --build-arg BASE_IMAGE=vllm/vllm-openai-xpu:v0.29.0     # ~10 s
-$env:B70_IMAGE='zrlu/qwen38-27b-arc-pro-b70:0.29.0-apcfix'
+$env:B70_IMAGE='zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix'
+$env:B70_LD_LIBRARY_PATH='/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib:/opt/venv/lib:/usr/local/lib'
 ./start-qwen38-27b-ablit-xpu-int4.ps1
-# then: python benchmarks/bench_context.py ctx   (any >64-token prefill is the canary)
 ```
 
-The base image is kept locally so this is a 10-second rebuild. If disk is tight,
-`docker rmi vllm/vllm-openai-xpu:v0.29.0` frees ~12 GB; it is a 5-minute re-pull.
-
-Two further notes from that test, useful when retrying:
-
-- 0.29.0 runs **Model Runner V2** for this model, so `patch_fix_accepted_sync.py`
-  becomes inert (V2 keeps the accepted-token counters GPU-resident; the script
-  detects this and says so). `patch_fix_backward_copy.py` stays active.
-- 0.29.0 does **not** contain upstream #53945/#54713 (the mamba align-cache
-  state-position fixes), so `B70_FIX_EAGLE_DROP=1` would still need re-testing.
+(0.28 was validated with the WSL driver's libs first; the default order in the
+launcher is the one 0.29.1 needs. `B70_PATCH_SET` is left unset so the 0.28 image
+falls back to `full`.)
 
 ## Headroom: is the hardware maxed out?
 

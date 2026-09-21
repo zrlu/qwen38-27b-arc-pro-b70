@@ -38,7 +38,7 @@ $containerName = "qwen38-27b-ablit-xpu"
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # ---- fixed int4 preset ------------------------------------------------
-$image = "zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix"
+$image = "zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly"
 $modelPath = Join-Path $repoRoot "model"
 $modelName = "huihui-qwen38-27b-abliterated-int4"
 
@@ -99,6 +99,11 @@ $image = EnvStr "B70_IMAGE" $image
 $fixAcceptSync = EnvInt "B70_FIX_ACCEPT_SYNC" 1
 $fixBackwardCopy = EnvInt "B70_FIX_BACKWARD_COPY" 1
 $fixEagleDrop = EnvInt "B70_FIX_EAGLE_DROP" 0
+# 0.28-era runtime patch stack: full | minimal | none. Empty = leave it to the
+# image's own ENV (0.29.1-nightly sets none; the 0.28 image has no default, so
+# start.sh falls back to full).
+$patchSet = EnvStr "B70_PATCH_SET" ""
+if ($patchSet -ne "") { $extraEnv += @("-e", "B70_PATCH_SET=$patchSet") }
 
 Write-Host "[start] INT4 preset: $modelPath"
 Write-Host "[start] maxModelLen=$maxModelLen MTP=$mtpTokens KV=$kvMemBytes eager=$enforceEager"
@@ -110,6 +115,20 @@ New-Item -Path $placeholderFile -ItemType File -Force | Out-Null
 # Optional extra -e args
 $extraEnv = @()
 if ($v2Runner -ne "") { $extraEnv += @("-e", "VLLM_USE_V2_MODEL_RUNNER=$v2Runner") }
+# Restrict the SYCL runtime's exposed backends. Setting e.g. "level_zero:*" hides
+# the OpenCL backend, which is what makes oneDNN try to JIT an OCL primitive and
+# fail on WSL2 (CL_COMPILER_NOT_AVAILABLE -> "could not create a primitive").
+$oneapiSelector = EnvStr "B70_ONEAPI_SELECTOR" ""
+if ($oneapiSelector -ne "") { $extraEnv += @("-e", "ONEAPI_DEVICE_SELECTOR=$oneapiSelector") }
+# Library search order. The default puts the WSL driver first (needed for
+# libcuda/libdxcore/libwsl_compute_helper), but that also shadows the
+# container's own IGC (/usr/local/lib, 2.38.2) with the Windows driver's
+# libigdfcl.so.2. Override to test IGC version coupling.
+$ldPath = EnvStr "B70_LD_LIBRARY_PATH" "/usr/local/lib:/opt/venv/lib:/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib"
+# NOTE: rolling back to B70_IMAGE=...:0.28.0-apcfix also needs
+#   B70_LD_LIBRARY_PATH=/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib:/opt/venv/lib:/usr/local/lib
+# (0.28 was validated with the WSL driver's libs first; this default is the
+# order the 0.29.1 nightly needs -- see docker/Dockerfile.nightly.)
 
 # Host start.sh
 $startSh = Join-Path $repoRoot "docker\opt-qwen38\start.sh"
@@ -130,7 +149,7 @@ docker run -d --name $containerName `
   -v "${startSh}:/opt/qwen38/start.sh:ro" `
   --mount type=bind,source=${modelPath},target=/model `
   -e MODEL_NAME=$modelName `
-  -e LD_LIBRARY_PATH=/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib:/opt/venv/lib:/usr/local/lib `
+  -e LD_LIBRARY_PATH=$ldPath `
   -e VLLM_TARGET_DEVICE=xpu `
   -e ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE `
   -e ZE_AFFINITY_MASK=0 `

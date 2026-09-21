@@ -1,0 +1,21 @@
+{
+  "label": "before",
+  "ts": "2026-09-20T23:31:40Z",
+  "intel_driver": "32.0.101.8805",
+  "intel_driver_date": "2026-07-06T20:00:00-04:00",
+  "vulkan_summary": "driverVersion      = 610.88.0.0 | deviceName         = NVIDIA GeForce RTX 5090 | driverName         = NVIDIA | driverVersion      = 101.8805 | deviceName         = Intel(R) Arc(TM) Pro B70 Graphics | driverName         = Intel Corporation",
+  "nvidia_driver": "32.0.16.1088",
+  "container_image": "zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix",
+  "container_digest": "sha256:2483c8f17519fe20096230959261da5f5ce7018678db7e484603989c8cefd3e5",
+  "mtp_tokens": 3,
+  "kv_cache_dtype": "fp8",
+  "gpu_mem_util": 0.88,
+  "max_model_len": 200000,
+  "kv_mem_bytes": 8053063680,
+  "max_num_seqs": 1,
+  "prefix_cache": 1,
+  "model": "huihui-qwen38-27b-abliterated-int4",
+  "driver_ab_note": "power limit not readable via xpu-smi on Windows; keep host/power config unchanged",
+  "power_limit_w": 230,
+  "xpu_smi": "v2.1 (Windows)"
+}

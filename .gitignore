@@ -4,3 +4,7 @@ model-mixed
 # Python bytecode
 __pycache__/
 *.pyc
+
+# bench_context.py / soak_hybrid_mtp.py byproducts
+bench_ctx.json
+soak_fail_t*.json

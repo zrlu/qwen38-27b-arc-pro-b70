@@ -1,0 +1,47 @@
+[
+ {
+  "ctx": 8037,
+  "ttft": 5.56,
+  "total": 11.0,
+  "gen": 128,
+  "tok_s": 23.5,
+  "prefill_tps": 1445,
+  "accept": 65.9
+ },
+ {
+  "ctx": 16005,
+  "ttft": 7.32,
+  "total": 12.9,
+  "gen": 128,
+  "tok_s": 22.8,
+  "prefill_tps": 2185,
+  "accept": 62.2
+ },
+ {
+  "ctx": 32255,
+  "ttft": 21.9,
+  "total": 27.1,
+  "gen": 128,
+  "tok_s": 24.5,
+  "prefill_tps": 1473,
+  "accept": 70.7
+ },
+ {
+  "ctx": 64258,
+  "ttft": 39.84,
+  "total": 45.8,
+  "gen": 128,
+  "tok_s": 21.3,
+  "prefill_tps": 1613,
+  "accept": 63.6
+ },
+ {
+  "ctx": 96181,
+  "ttft": 53.02,
+  "total": 59.1,
+  "gen": 128,
+  "tok_s": 20.9,
+  "prefill_tps": 1814,
+  "accept": 62.9
+ }
+]
