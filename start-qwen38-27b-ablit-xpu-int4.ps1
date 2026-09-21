@@ -95,10 +95,9 @@ $maxNumBatched = EnvInt "B70_MAX_NUM_BATCHED" 8192
 $maxNumSeqs = EnvInt "B70_MAX_NUM_SEQS" 1
 $gpuMemUtil = EnvStr "B70_GPU_MEM_UTIL" "0.88"
 # 1 / 0 / unset: force vLLM's V2 / V1 model runner, or leave vLLM's default.
-# On WSL2 the 0.29.0 V2 runner makes the oneDNN W4A16 GEMM JIT and the WSL
-# OpenCL driver has no compiler -> "could not create a primitive". Harmless
-# (unset) on 0.28.0, which is the shipped default.
-$v2Runner = EnvStr "B70_V2_RUNNER" ""
+# Default 0 (V1): the V2 GDN metadata path intermittently wedges in
+# `urEventWait` with the GPU idle (see README "Upgrading to vLLM 0.29.1").
+$v2Runner = EnvStr "B70_V2_RUNNER" "0"
 $image = EnvStr "B70_IMAGE" $image
 # Correctness fixes for hybrid MTP + align-mode prefix caching.
 # accept-sync + backward-copy are required. eagle-drop is upstream-correct but
@@ -140,6 +139,12 @@ if ($patchSet -ne "") { $extraEnv += @("-e", "B70_PATCH_SET=$patchSet") }
 $placeholderFile = Join-Path $env:TEMP "placeholder-empty"
 New-Item -Path $placeholderFile -ItemType File -Force | Out-Null
 
+# Persist Triton's JIT cache across container recreations. Otherwise every start
+# re-compiles the spec-decode kernels during the first requests (the jit_monitor
+# warnings), which is both a latency spike and the suspected wedge window.
+$tritonCache = Join-Path $repoRoot ".triton-cache"
+New-Item -ItemType Directory -Force -Path $tritonCache | Out-Null
+
 # Host start.sh
 $startSh = Join-Path $repoRoot "docker\opt-qwen38\start.sh"
 
@@ -150,6 +155,7 @@ docker rm -f $containerName 2>$null | Out-Null
 Write-Host "[start] Launching $containerName"
 docker run -d --name $containerName `
   --device /dev/dxg `
+  --cap-add SYS_PTRACE `
   --shm-size 16g `
   -p 127.0.0.1:8000:8000 `
   -v /usr/lib/wsl/lib:/usr/lib/wsl/lib:ro `
@@ -158,6 +164,7 @@ docker run -d --name $containerName `
   -v /usr/lib/wsl/drivers:/usr/lib/wsl/drivers:ro `
   -v "${startSh}:/opt/qwen38/start.sh:ro" `
   --mount type=bind,source=${modelPath},target=/model `
+  --mount type=bind,source=${tritonCache},target=/root/.triton/cache `
   -e MODEL_NAME=$modelName `
   -e LD_LIBRARY_PATH=$ldPath `
   -e VLLM_TARGET_DEVICE=xpu `

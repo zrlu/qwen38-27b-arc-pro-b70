@@ -24,6 +24,34 @@ RUN mkdir -p /usr/lib/wsl/lib && \
 
 COPY opt-qwen38/ /opt/qwen38/
 
+# For the watchdog: dump a Python stack of a wedged EngineCore (needs the
+# container to run with --cap-add SYS_PTRACE, which the launcher does).
+RUN pip install --no-cache-dir py-spy && /opt/venv/bin/py-spy --version
+
+# ---- Intel GPU user-mode driver upgrade ----------------------------------
+# The base image ships compute-runtime 26.27.39122.11 + IGC 2.38.2. The
+# EngineCore wedge on this stack traces to `urEventWait` spinning inside
+# libze_intel_gpu.so.1.15.39122 (26.27) while the GPU sits idle -- a Level Zero
+# UMD bug, not a vLLM one, and only a process restart clears it.
+# 26.35.39758.10 (2026-09-17) is current, and it requires IGC >= 2.41.5, so both
+# are upgraded together. libigdgmm12 is deliberately not reinstalled: the image
+# already has 22.10.1, which satisfies the dependency.
+ARG UMD_VERSION=26.35.39758.10
+ARG IGC_VERSION=2.41.5+22716
+RUN cd /tmp && \
+    for u in \
+      "https://github.com/intel/compute-runtime/releases/download/${UMD_VERSION}/libze-intel-gpu1_${UMD_VERSION}-0_amd64.deb" \
+      "https://github.com/intel/compute-runtime/releases/download/${UMD_VERSION}/intel-opencl-icd_${UMD_VERSION}-0_amd64.deb" \
+      "https://github.com/intel/compute-runtime/releases/download/${UMD_VERSION}/intel-ocloc_${UMD_VERSION}-0_amd64.deb" \
+      "https://github.com/intel/intel-graphics-compiler/releases/download/v2.41.5/intel-igc-core-2_${IGC_VERSION}_amd64.deb" \
+      "https://github.com/intel/intel-graphics-compiler/releases/download/v2.41.5/intel-igc-opencl-2_${IGC_VERSION}_amd64.deb" ; do \
+      wget -q "$u" || exit 1; \
+    done && \
+    apt-get update -qq && apt-get install -y --no-install-recommends ./*.deb && \
+    rm -f ./*.deb && rm -rf /var/lib/apt/lists/* && \
+    dpkg -l | grep -E "libze-intel-gpu1|intel-opencl-icd|intel-ocloc|intel-igc" | awk '{print $2, $3}' && \
+    ls -l /usr/lib/x86_64-linux-gnu/libze_intel_gpu.so.1.*
+
 ENV CUDA_VISIBLE_DEVICES="" VLLM_ALLOW_RUNTIME_PLUGIN_REGISTER=1
 
 # --- WSL2 workarounds (required, not tuning knobs) ------------------------
@@ -38,8 +66,17 @@ ENV CUDA_VISIBLE_DEVICES="" VLLM_ALLOW_RUNTIME_PLUGIN_REGISTER=1
 ENV LD_LIBRARY_PATH=/usr/local/lib:/opt/venv/lib:/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib
 ENV ONEAPI_DEVICE_SELECTOR=level_zero:*
 
-# No 0.28-era runtime patches on this generation (upstream has the fixes).
-ENV B70_PATCH_SET=none
+# V1 model runner, not the default V2: the V2 GDN attention-metadata path
+# (mamba_hybrid.py prepare_attn -> gdn_attn.py build) intermittently hangs in
+# `urEventWait` with the GPU idle -- 3 of 4 runs of a 7-distinct-prompt sequence
+# wedged on V2, 21/21 requests passed on V1. V1 also needs the #53919
+# accepted-token race fix, hence PATCH_SET=minimal below.
+ENV VLLM_USE_V2_MODEL_RUNNER=0
+
+# The still-missing correctness patches: vllm#53505 (backward mamba state copy)
+# and vllm#53919 (accepted-token race, V1-only). The 0.28-era patches in the
+# `full` set are NOT applied -- they conflict with upstream's own fixes.
+ENV B70_PATCH_SET=minimal
 
 # WSL2/Arc production defaults (the launcher passes these explicitly too).
 ENV VLLM_TARGET_DEVICE=xpu \

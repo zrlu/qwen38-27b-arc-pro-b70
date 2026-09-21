@@ -9,3 +9,6 @@ __pycache__/
 bench_ctx.json
 soak_fail_t*.json
 quality_ab_*.json
+
+# Triton JIT cache (persisted across container recreations)
+.triton-cache/

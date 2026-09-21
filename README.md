@@ -378,22 +378,74 @@ because it is harmless and cheap, but **do not** treat it as the `!` fix — the
 All patches are idempotent (marker-guarded) and re-apply on every container
 start, since the base vLLM image does not contain them.
 
-## Upgrading to vLLM 0.29.1 nightly (experimental)
+## Upgrading to vLLM 0.29.1 nightly
 
-**Status: experimental, not the default.** It is ~10-20 % faster than the
-shipped 0.28 + overlay, and it contains the upstream mamba align-cache fixes
-this repo used to vendor, but it **wedges intermittently**: 3 of 4 runs of a
-7-distinct-prompt sequence hung on the 6th request (EngineCore at 100 % CPU,
-`Running: 1`, no progress, only a restart recovers), and there were two
-intermittent boot segfaults (Exited 139). It is kept as an opt-in tag until
-that is understood.
+**Status: default.** It is faster than the 0.28 generation, it contains the
+upstream mamba align-cache fixes this repo used to vendor, and the wedge it used
+to suffer is understood and avoided (below). It needs Intel Arc Windows driver
+**32.0.101.9030 (2026-09-16) or newer**.
 
-It also fixes a failure mode the stable 0.28 stack still has: after a large
-*fresh* prefill the MTP draft acceptance can collapse to **exactly 0 %**
-(`Avg Draft acceptance rate: 0.0%`, `Mean acceptance length: 1.00`), which drops
-decode to ~15 tok/s while every draft token is still computed. That is the
-"gets slower the longer you use it" symptom, and it is why this nightly exists
-as an option.
+### The wedge, and its root cause
+
+Symptom: the EngineCore stops making progress while the HTTP API keeps working
+(`/health` and `/metrics` answer, the container shows `Up`), CPU pegged at
+~100 %, `num_requests_running` stuck, only a restart recovers. It happened both
+mid-request (3 of 4 runs of a 7-distinct-prompt sequence, always on the 6th
+request) and after a long idle period.
+
+Captured with `py-spy` (the launcher passes `--cap-add SYS_PTRACE` and the image
+ships py-spy), full dump in `docs/wedge-v2-gdn-ureventwait.txt`:
+
+```
+Thread 422 (active): "MainThread"
+    sched_yield (libc.so.6)
+    0x... (libze_intel_gpu.so.1.17.39758)
+    0x... (libze_intel_gpu.so.1.17.39758)
+    ur::level_zero::urEventWait (libur_adapter_level_zero.so.0)
+    build (vllm/v1/attention/backends/gdn_attn.py:307)
+    build_attn_metadata (vllm/v1/worker/gpu/attn_utils.py:496)
+    prepare_attn (vllm/v1/worker/gpu/model_states/mamba_hybrid.py:332)
+    execute_model (vllm/v1/worker/gpu/model_runner.py:1816)
+```
+
+So it is a **Level Zero event wait that never returns**, spun on by the UMD,
+while the GPU sits idle (verified: a fresh process in the same container ran a
+XPU op in 0.9 s during a wedge, and Windows GPU compute counters stayed below
+0.5 %). It is not a vLLM Python loop (`gdn_attn.py` has no `while`/`for`).
+
+### The fix: run the V1 model runner
+
+The whole path is **Model Runner V2** (`mamba_hybrid.py prepare_attn` -> V2's
+metadata build). The 0.28 generation runs V1 and never showed this.
+
+| runner | 7-distinct-prompt sequence |
+|---|---|
+| V2 (vLLM default) | wedged 3 of 4 runs, always on request 6 |
+| **V1** (`VLLM_USE_V2_MODEL_RUNNER=0`) | **21/21 requests passed, 3 rounds** |
+
+Decode throughput is unaffected (`bench_context.py ctx`, tok/s):
+
+| context | 8 k | 16 k | 32 k | 64 k | 100 k |
+|---|---:|---:|---:|---:|---:|
+| V2 | 65.3 | 55.8 | 57.6 | 46.8 | 45.7 |
+| **V1** | 61.5 | 54.4 | 56.7 | 43.1 | **50.9** |
+
+V1 has the accepted-token race that V2 fixes by design, so the image also sets
+`B70_PATCH_SET=minimal` (vllm#53919 accepted-token sync + vllm#53505 backward
+state copy, both still unmerged upstream). Boot log should say
+`[accept-sync] ... V1 VIVO: el fix esta ACTIVO`.
+
+### Other things tried (and kept)
+
+- **Intel UMD upgraded** to compute-runtime `26.35.39758.10` + IGC `2.41.5`
+  (`libze_intel_gpu.so.1.15.39122` -> `1.17.39758`). This did **not** fix the
+  wedge — it reproduces identically on the new UMD — but it is the current
+  release and is kept.
+- **Triton JIT cache persisted** across container recreations
+  (`$repoRoot\.triton-cache` -> `/root/.triton/cache`), so the spec-decode
+  kernels are not recompiled on every start.
+- **`--cap-add SYS_PTRACE` + py-spy** in the image: without them a wedge is
+  undiagnosable (the first attempt failed with `Permission denied`).
 
 The image is `zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly`:
 
