@@ -9,7 +9,8 @@ Images:
 
 | Tag | What |
 |---|---|
-| `zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly` | **current / default**: vLLM 0.29.1 nightly + kernels 0.1.14.1, no runtime patches. Fastest, and it has the upstream mamba align-cache fixes. Needs the 2026-09-16+ Intel Windows driver; can wedge intermittently (see [Upgrading](#upgrading-to-vllm-0291-nightly-experimental)). |
+| `zrlu/qwen38-27b-arc-pro-b70:0.30.0` | **current / default**: vLLM 0.30.0 + kernels 0.1.15.4 + UMD 26.35/IGC 2.41.5. V1 runner + `B70_PATCH_SET=minimal`. Validated: 121k-token 40-turn soak clean. |
+| `zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly` | previous: vLLM 0.29.1 nightly + kernels 0.1.14.1. Same wedge, same throughput. |
 | `zrlu/qwen38-27b-arc-pro-b70:0.28.0-apcfix` | **stable fallback**: vLLM 0.28.0 + the vendored mamba correctness patches + the draft-INT4 overlay. ~10-20 % slower, no driver requirement, never wedged in testing. |
 
 | Artifact | Link |
@@ -380,10 +381,31 @@ start, since the base vLLM image does not contain them.
 
 ## Upgrading to vLLM 0.29.1 nightly
 
-**Status: default.** It is faster than the 0.28 generation, it contains the
-upstream mamba align-cache fixes this repo used to vendor, and the wedge it used
-to suffer is understood and avoided (below). It needs Intel Arc Windows driver
-**32.0.101.9030 (2026-09-16) or newer**.
+### 2026-09-24: v0.30.0 tried — the wedge is unchanged
+
+vLLM v0.30.0 (2026-09-22) + `vllm-xpu-kernels` 0.1.15.4 was built and tested
+(`zrlu/...:0.30.0`, `docker/Dockerfile.nightly` with
+`--build-arg BASE_IMAGE=vllm/vllm-openai-xpu:v0.30.0 --build-arg
+KERNELS_VERSION=0.1.15.4`). Findings:
+
+- **The GPTQ checkpoint still loads** (18.32 GiB). v0.30.0 removed GPTQ
+  activation ordering (`g_idx`, #54809), which was a real risk for this model.
+- **The V2-runner wedge is NOT fixed.** It reproduces at the same place, with a
+  byte-identical `py-spy` stack — `urEventWait` (`libze_intel_gpu.so.1.17.39758`)
+  -> `build()` at `gdn_attn.py:307`, the same source line. v0.30.0's
+  [#51565](https://github.com/vllm-project/vllm/pull/51565) (*"Fix stateless
+  first-chunk classification"*, a real bug: reusable Mamba state pages are not
+  zeroed, so a misclassified first token can consume a previous request's state)
+  is a **different** bug and does not cover this one.
+- **V1 still avoids it**, and throughput is unchanged: 61.5 / 54.3 / 49.7 tok/s
+  at 1.2k / 3k / 8k context, and a clean 121,281-token / 40-turn soak.
+- The patch trio still applies to the v0.30.0 tree, so `B70_PATCH_SET=minimal`
+  (vllm#53919 + vllm#53505) is used as on the nightly.
+
+So 0.30.0 becomes the default (a release, not a nightly, plus #51565, the WSL
+V2 fix #56908, GDN capture metadata without a device sync #55404, kernels warmed
+before capture #55341, and `FULL_DECODE_ONLY` fallback #55095) — with **V1** and
+the wedge still open upstream.
 
 ### The wedge, and its root cause
 

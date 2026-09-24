@@ -44,7 +44,7 @@ $containerName = "qwen38-27b-ablit-xpu"
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # ---- fixed int4 preset ------------------------------------------------
-$image = "zrlu/qwen38-27b-arc-pro-b70:0.29.1-nightly"
+$image = "zrlu/qwen38-27b-arc-pro-b70:0.30.0"
 $modelPath = Join-Path $repoRoot "model"
 $modelName = "huihui-qwen38-27b-abliterated-int4"
 

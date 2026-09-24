@@ -28,6 +28,12 @@ COPY opt-qwen38/ /opt/qwen38/
 # container to run with --cap-add SYS_PTRACE, which the launcher does).
 RUN pip install --no-cache-dir py-spy && /opt/venv/bin/py-spy --version
 
+ARG KERNELS_VERSION=
+RUN if [ -n "$KERNELS_VERSION" ]; then \
+      pip install --no-cache-dir "vllm-xpu-kernels==${KERNELS_VERSION}" ; \
+    fi && \
+    python -c "import importlib.metadata as m; print('vllm-xpu-kernels', m.version('vllm-xpu-kernels'))"
+
 # ---- Intel GPU user-mode driver upgrade ----------------------------------
 # The base image ships compute-runtime 26.27.39122.11 + IGC 2.38.2. The
 # EngineCore wedge on this stack traces to `urEventWait` spinning inside

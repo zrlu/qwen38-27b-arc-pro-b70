@@ -1,0 +1,148 @@
+/opt/venv/lib/python3.12/site-packages/torch/xpu/__init__.py:251: UserWarning: Can't initialize Level Zero Sysman
+  return _enum_zes_device_infos(visible_mask)
+/opt/venv/lib/python3.12/site-packages/torch/xpu/__init__.py:251: UserWarning: Can't initialize Level Zero Sysman
+  return _enum_zes_device_infos(visible_mask)
+Collecting environment information...
+==============================
+        System Info
+==============================
+OS                           : Ubuntu 24.04.5 LTS (x86_64)
+GCC version                  : (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+Clang version                : Could not collect
+CMake version                : version 4.4.3
+Libc version                 : glibc-2.39
+
+==============================
+       PyTorch Info
+==============================
+PyTorch version              : 2.13.0+xpu
+Is debug build               : False
+CUDA used to build PyTorch   : None
+ROCM used to build PyTorch   : N/A
+XPU used to build PyTorch    : 20260000
+
+==============================
+      Python Environment
+==============================
+Python version               : 3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0] (64-bit runtime)
+Python platform              : Linux-6.18.40.1-microsoft-standard-WSL2-x86_64-with-glibc2.39
+    
+==============================
+      Intel XPU / GPU Info
+==============================
+Is XPU available             : True
+XPU runtime version          : 20260000
+Intel GPU models             : GPU 0: Intel(R) Graphics [0xe223]
+
+--Compile time--
+oneAPI compiler version      : Could not collect
+SYCL compiler build          : Could not collect
+oneCCL version               : 2022.0.0
+
+--Runtime--
+Intel Graphics Compiler (IGC): 2.41.5
+Intel GMM (libigdgmm)        : 22.10.1-1~24.04~ppa1
+Level Zero loader version    : 1.32.0
+Level Zero driver version    : 26.35.39758.10-0
+vLLM XPU kernels version     : 0.1.14.1
+
+==============================
+          CPU Info
+==============================
+Architecture:                            x86_64
+CPU op-mode(s):                          32-bit, 64-bit
+Address sizes:                           39 bits physical, 48 bits virtual
+Byte Order:                              Little Endian
+CPU(s):                                  32
+On-line CPU(s) list:                     0-31
+Vendor ID:                               GenuineIntel
+Model name:                              Intel(R) Core(TM) i9-14900KF
+CPU family:                              6
+Model:                                   183
+Thread(s) per core:                      2
+Core(s) per socket:                      16
+Socket(s):                               1
+Stepping:                                1
+BogoMIPS:                                6374.39
+Flags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology tsc_reliable nonstop_tsc cpuid tsc_known_freq pni pclmulqdq vmx ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch ssbd ibrs ibpb stibp ibrs_enhanced tpr_shadow ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid rdseed adx smap clflushopt clwb sha_ni xsaveopt xsavec xgetbv1 xsaves avx_vnni vnmi umip waitpkg gfni vaes vpclmulqdq rdpid movdiri movdir64b fsrm md_clear serialize ibt flush_l1d arch_capabilities
+Virtualization:                          VT-x
+Hypervisor vendor:                       Microsoft
+Virtualization type:                     full
+L1d cache:                               768 KiB (16 instances)
+L1i cache:                               512 KiB (16 instances)
+L2 cache:                                32 MiB (16 instances)
+L3 cache:                                36 MiB (1 instance)
+NUMA node(s):                            1
+NUMA node0 CPU(s):                       0-31
+Vulnerability Gather data sampling:      Not affected
+Vulnerability Ghostwrite:                Not affected
+Vulnerability Indirect target selection: Not affected
+Vulnerability Itlb multihit:             Not affected
+Vulnerability L1tf:                      Not affected
+Vulnerability Mds:                       Not affected
+Vulnerability Meltdown:                  Not affected
+Vulnerability Mmio stale data:           Not affected
+Vulnerability Old microcode:             Not affected
+Vulnerability Reg file data sampling:    Mitigation; Clear Register File
+Vulnerability Retbleed:                  Mitigation; Enhanced IBRS
+Vulnerability Spec rstack overflow:      Not affected
+Vulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl
+Vulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization
+Vulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; PBRSB-eIBRS SW sequence; BHI BHI_DIS_S
+Vulnerability Srbds:                     Not affected
+Vulnerability Tsa:                       Not affected
+Vulnerability Tsx async abort:           Not affected
+Vulnerability Vmscape:                   Not affected
+
+==============================
+Versions of relevant libraries
+==============================
+[pip3] numpy==2.2.6
+[pip3] open_clip_torch==2.32.0
+[pip3] pyzmq==27.1.0
+[pip3] sentence-transformers==5.7.0
+[pip3] torch==2.13.0+xpu
+[pip3] torchaudio==2.11.0+xpu
+[pip3] torchcodec==0.16.0+cpu
+[pip3] torchvision==0.28.0+xpu
+[pip3] transformers==5.17.0
+[pip3] triton==3.7.2+xpu
+[pip3] triton-xpu==3.7.2
+[conda] Could not collect
+
+==============================
+         vLLM Info
+==============================
+ROCM Version                 : Could not collect
+vLLM Version                 : 0.29.1rc1.dev422+gd05da62e9 (git sha: d05da62e9)
+vLLM Build Flags:
+  CUDA Archs: Not Set; ROCm: Disabled; XPU: Enabled
+GPU Topology:
+  Could not collect
+
+==============================
+     Environment Variables
+==============================
+CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK=0
+TORCH_LLM_ALLREDUCE=1
+VLLM_USE_V2_MODEL_RUNNER=0
+PYTORCH_ALLOC_CONF=expandable_segments:True
+CCL_ENABLE_SYCL_KERNELS=0
+VLLM_WORKER_MULTIPROC_METHOD=spawn
+CCL_ZE_CACHE_OPEN_IPC_HANDLES=0
+ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE
+VLLM_XPU_ENABLE_XPU_GRAPH=1
+VLLM_USE_BREAKABLE_CUDAGRAPH=1
+CCL_ATL_TRANSPORT=ofi
+ZE_AFFINITY_MASK=0
+CUDA_VISIBLE_DEVICES=
+CUDA_VISIBLE_DEVICES=
+SYCL_PI_LEVEL_ZERO_USE_IMMEDIATE_COMMANDLISTS=0
+VLLM_TARGET_DEVICE=xpu
+LD_LIBRARY_PATH=/usr/local/lib:/opt/venv/lib:/usr/lib/wsl/lib:/opt/ucx/lib:/tmp/ucx_install/lib
+VLLM_TRITON_USE_TD=1
+SYCL_UR_USE_LEVEL_ZERO_V2=0
+PYTORCH_NVML_BASED_CUDA_CHECK=1
+TORCHINDUCTOR_COMPILE_THREADS=1
+TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_root
+
