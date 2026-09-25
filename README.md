@@ -305,6 +305,44 @@ isolated the real `!` cause to hybrid MTP + align-mode prefix-cache corruption
 by default and only worth turning on as a debugging lever. `--enforce-eager`
 remains far worse (a few tok/s on this stack).
 
+## The XPU graph replay accumulates cost per step (why the graph is OFF by default)
+
+Measured 2026-09-25 with `benchmarks/step_drift.py` (one long generation repeated,
+no restart in between; reproduces in minutes instead of needing an hours-long
+soak):
+
+| | first step of a request | within one request | per request (1650 steps) |
+|---|---:|---|---:|
+| `VLLM_XPU_ENABLE_XPU_GRAPH=1` | 51.3 ms | +7–8% | +3.3 … +4.7 ms |
+| `VLLM_XPU_ENABLE_XPU_GRAPH=0` | 67.9 ms | −2 … +2% | flat (~0.14 µs/step) |
+
+With the graph on, six identical back-to-back generations had first-chunk
+intervals 51.3 → 54.6 → 59.1 → 62.6 → 65.6 → 68.6 ms: the same work gets slower,
+permanently, and only a process restart clears it. Rate: **~2.8 µs per decode
+step** (~0.7 µs per graph replay; `VLLM_USE_BREAKABLE_CUDAGRAPH=1`, which splits
+each forward into more replay segments, accumulates ~1.8× faster). Host RSS, fd
+count, container memory and device memory all stay flat, so it is a driver-side
+accumulation: `py-spy --native` puts the time in `libze_intel_gpu.so`,
+`resetCommandLists` (UR L0 adapter) and `sched_yield`, i.e. the Level Zero
+submission path.
+
+Consequence for a long session — with the graph `50.8 ms + 2.8 µs × steps`,
+without it a flat ~68 ms — the two cross over at **~6,100 steps (~15 k generated
+tokens, ~5 min of continuous generation)**. Past that the un-graphed path is
+faster, and at 30 k steps it is 2× faster (135 ms vs 68 ms per step). That is the
+"gets slower until you restart the container" complaint: the 8–9 tok/s after a
+long uptime is this accumulation (plus the interleaved re-prefill of the
+uncovered prompt tail).
+
+Disabling the graph costs nothing else: request-start (ttft) is identical
+(2.6 / 3.0 / 3.7 s at 3–10k / 10–20k / 20–40k context), a 121,376-token / 40-turn
+needle soak is clean, and an agent-style soak reaches the same 44–48 tok/s at
+121 k context. Only a low-acceptance, long forced generation shows the ~34%
+higher step time.
+
+`VLLM_XPU_ENABLE_XPU_GRAPH` is exposed as `B70_XPU_GRAPH` (launcher default
+`0`); set it to `1` for short, latency-critical bursts.
+
 ## Other runtime patches (why they exist)
 
 `start.sh` applies a set of vLLM 0.28.0 patches at container boot. The two

@@ -1,0 +1,3 @@
+session probe: model=qwen38-27b-jp-rp-int4 chunk=2000 gen=200 interval=300s max_ctx=120000 -> C:\LocalLLM\qwen38-27b-ablit-xpu\session-degradation-b0.csv
+  -- new session (offset=977)
+  2026-09-25 08:58:53 turn=1 ctx=1866 ttft=12.29s ctx/ttft=152 thr=40.9 step_ms=57.8 accept=45.5% hit=0.0% kv=0.0 W=29 MHz=2800

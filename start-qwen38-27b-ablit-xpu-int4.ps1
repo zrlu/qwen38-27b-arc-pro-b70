@@ -146,6 +146,13 @@ if ($v2Runner -ne "") { $extraEnv += @("-e", "VLLM_USE_V2_MODEL_RUNNER=$v2Runner
 if ($oneapiSelector -ne "") { $extraEnv += @("-e", "ONEAPI_DEVICE_SELECTOR=$oneapiSelector") }
 if ($patchSet -ne "") { $extraEnv += @("-e", "B70_PATCH_SET=$patchSet") }
 if ($breakable -ne "") { $extraEnv += @("-e", "VLLM_USE_BREAKABLE_CUDAGRAPH=$breakable") }
+# OFF by default: the XPU graph replay accumulates ~2.8us per decode step
+# (~0.7us per replay) forever; step time grows linearly with steps run since
+# the last restart and only a restart clears it. Without the graph the step
+# time is flat (~0.14us/step of noise) and agent-style throughput at 121k ctx
+# is the same. Set B70_XPU_GRAPH=1 for short latency-critical bursts.
+$xpuGraph = EnvStr "B70_XPU_GRAPH" "0"   # 0 -> VLLM_XPU_ENABLE_XPU_GRAPH=0 (cudagraph_mode=NONE)
+  if ($xpuGraph -ne "") { $extraEnv += @("-e", "VLLM_XPU_ENABLE_XPU_GRAPH=$xpuGraph") }
 
 # Create placeholder file (WSL interop shims)
 $placeholderFile = Join-Path $env:TEMP "placeholder-empty"

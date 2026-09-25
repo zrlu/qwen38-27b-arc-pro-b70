@@ -1,0 +1,2 @@
+timestamp,turn,ctx,new_tokens,ttft_s,ctx_over_ttft,thr_tok_s,step_ms,accept_pct,hit_pct,kv_pct,power_w,gpu_mhz,mem_read_gbs
+2026-09-25 08:58:53,1,1866,1866,12.29,152,40.9,57.8,45.5,0.0,0.0,29,2800,0.1
