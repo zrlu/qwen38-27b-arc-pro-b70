@@ -87,6 +87,17 @@ $draftInt4 = EnvInt "B70_DRAFT_INT4" 0   # BF16 MTP draft (no INT4 draft quant)
 # +20-55% decode, 7/7 bit-identical greedy outputs in benchmarks/quality_ab.py.
 $draftLmheadInt4 = EnvInt "B70_DRAFT_LMHEAD_INT4" 1
 $maxImages = EnvInt "B70_MM_IMAGES" 16
+# Hybrid (GDN) + MTP: vLLM defaults prefix-cache retention to 0 (sparse),
+# which #55861 documents as "repeated prompts without cache hits".
+# B70_PREFIX_CACHE_RETENTION_INTERVAL=1600 (mamba page size) = dense.
+$retention = EnvStr "B70_PREFIX_CACHE_RETENTION_INTERVAL" ""
+$fineGrained = EnvStr "B70_MAMBA_FINE_GRAINED" ""
+$matchUnit = EnvStr "B70_PREFIX_MATCH_UNIT" ""
+# OFF by default: A/B on 2026-09-25 showed breakable=1 costs ~80% of the
+# request-start (ttft) time and ~11% of decode step time, with identical
+# prefix-cache hit rates, on this hybrid+MTP stack. The reason it used to be
+# on (avoiding GDN state poisoning) was disproved -- that was the APC bug.
+$breakable = EnvStr "B70_BREAKABLE_GRAPH" "0"   # 1/0 -> VLLM_USE_BREAKABLE_CUDAGRAPH
 $prefixCache = EnvInt "B70_PREFIX_CACHE" 1
 $enforceEager = EnvInt "B70_ENFORCE_EAGER" 0
 $kvCacheDtype = EnvStr "B70_KV_CACHE_DTYPE" "fp8"
@@ -134,6 +145,7 @@ $extraEnv = @()
 if ($v2Runner -ne "") { $extraEnv += @("-e", "VLLM_USE_V2_MODEL_RUNNER=$v2Runner") }
 if ($oneapiSelector -ne "") { $extraEnv += @("-e", "ONEAPI_DEVICE_SELECTOR=$oneapiSelector") }
 if ($patchSet -ne "") { $extraEnv += @("-e", "B70_PATCH_SET=$patchSet") }
+if ($breakable -ne "") { $extraEnv += @("-e", "VLLM_USE_BREAKABLE_CUDAGRAPH=$breakable") }
 
 # Create placeholder file (WSL interop shims)
 $placeholderFile = Join-Path $env:TEMP "placeholder-empty"
@@ -154,6 +166,7 @@ docker rm -f $containerName 2>$null | Out-Null
 
 Write-Host "[start] Launching $containerName"
 docker run -d --name $containerName `
+  --init `
   --device /dev/dxg `
   --cap-add SYS_PTRACE `
   --shm-size 16g `
@@ -193,6 +206,9 @@ docker run -d --name $containerName `
   -e MM_IMAGES=$maxImages `
   $extraEnv `
   -e B70_FIX_ACCEPT_SYNC=$fixAcceptSync `
+  $(if ($retention -ne "") { "-e B70_PREFIX_CACHE_RETENTION_INTERVAL=$retention" }) `
+  $(if ($fineGrained -ne "") { "-e B70_MAMBA_FINE_GRAINED=$fineGrained" }) `
+  $(if ($matchUnit -ne "") { "-e B70_PREFIX_MATCH_UNIT=$matchUnit" }) `
   -e B70_FIX_BACKWARD_COPY=$fixBackwardCopy `
   -e B70_FIX_EAGLE_DROP=$fixEagleDrop `
   $image

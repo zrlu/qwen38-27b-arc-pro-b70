@@ -113,6 +113,12 @@ args=(
   --max-num-seqs "$MAX_NUM_SEQS" \
   --max-num-batched-tokens "$MAX_NUM_BATCHED_TOKENS" \
   $(if [ "$PREFIX_CACHE" = "1" ]; then echo "--enable-prefix-caching"; else echo "--no-enable-prefix-caching"; fi) \
+  # B70_PREFIX_CACHE_RETENTION_INTERVAL>0: vLLM defaults this to 0 (sparse,
+  # keep only the latest replayable boundary); upstream #55861 documents
+  # that as "repeated prompts without cache hits" for Qwen3.5 + MTP.
+  $(if [ "${B70_PREFIX_CACHE_RETENTION_INTERVAL:-0}" -gt 0 ]; then echo "--prefix-cache-retention-interval ${B70_PREFIX_CACHE_RETENTION_INTERVAL}"; fi) \
+  $(if [ "${B70_MAMBA_FINE_GRAINED:-0}" = "1" ]; then echo "--enable-mamba-fine-grained-prefix-cache"; fi) \
+  $(if [ "${B70_PREFIX_MATCH_UNIT:-0}" -gt 0 ]; then echo "--prefix-match-unit ${B70_PREFIX_MATCH_UNIT}"; fi) \
   $(if [ "$ENFORCE_EAGER" = "1" ]; then echo "--enforce-eager"; fi) \
   --served-model-name "$MODEL_NAME" \
   --generation-config auto \

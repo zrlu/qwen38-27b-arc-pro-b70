@@ -271,30 +271,39 @@ Knobs: `B70_DRAFT_LMHEAD_INT4=0` disables it; `B70_DRAFT_INT4=1` additionally
 enables the MTP-linear phase ("M1"), which this model's README notes may hit a
 shape mismatch — not used here.
 
-## Why breakable CUDA graph is enabled (VLLM_USE_BREAKABLE_CUDAGRAPH=1)
+## Why breakable CUDA graph is now DISABLED (VLLM_USE_BREAKABLE_CUDAGRAPH=0)
 
-The image bakes `VLLM_XPU_ENABLE_XPU_GRAPH=1` **and**
-`VLLM_USE_BREAKABLE_CUDAGRAPH=1`. On the XPU backend, CUDA-graph capture
-compiles the forward into a static replay, but the GDN (linear-attention)
-custom op reads per-step state (conv/ssm) from buffers staged from live block
-tables. Under a normal (non-breakable) PIECEWISE graph, a long prefill can bind
-those state indices to capture-time buffers and poison later requests, so this
-was originally kept on for correctness.
+The image bakes `VLLM_XPU_ENABLE_XPU_GRAPH=1` while
+`VLLM_USE_BREAKABLE_CUDAGRAPH=0`. The breakable switch marks the GDN
+(linear-attention) custom op as an *eager break point*: capture ends the current
+graph segment there, the op runs eagerly against live per-step metadata, and
+capture resumes. That splits every decode step into several replay calls, each
+one a host<->device round trip.
 
-`VLLM_USE_BREAKABLE_CUDAGRAPH=1` (the upstream experimental switch, on by
-default here) marks the GDN custom op as an *eager break point*: capture ends the
-current graph segment at the op, the op runs eagerly re-reading the live
-per-step metadata, and capture resumes. All other layers remain in the captured
-graph.
+**A/B, 2026-09-25, same container, same prompts, identical prefix-cache hit
+rates (so the comparison is fair):**
 
-**Status: kept enabled, but note what it is and is not.** Re-testing in
-September 2026 isolated the actual `!` cause to the hybrid MTP + align-mode
-prefix-cache corruption (see above) — a fresh engine with this configuration
-passed a 121 k-token needle soak, and the 94 k-token reproducer that used to go
-NaN is clean. The breakable graph is therefore retained as a defensive default
-rather than as the fix. A/B it with `-e VLLM_USE_BREAKABLE_CUDAGRAPH=0`, or
-`--enforce-eager`, only when debugging — `--enforce-eager` was measured at a few
-tok/s on this stack.
+| context | breakable=1 ttft / step | breakable=0 ttft / step |
+|---|---:|---:|
+| 3–10k | 15.7 s / 56.9 ms | **2.6 s** / **50.8 ms** |
+| 10–20k | 15.3 s / 59.3 ms | **3.0 s** / **52.6 ms** |
+| 20–40k | 15.6 s / 64.0 ms | **3.7 s** / **57.0 ms** |
+
+Request-start drops ~76–83%, decode steps ~11%. A `py-spy record` during a slow
+step put 80% of the CPU samples in `breakable_cudagraph.replay` ->
+`torch/xpu/graphs.py:107 replay`, reached from the MTP draft path
+(`propose_draft_token_ids`); the target forward was only 16% and the GPU sat at
+26–28 W of a 230 W budget — host-side replay overhead, not GPU work.
+
+**Correctness gate (the reason it used to be on):** the original justification
+was that a non-breakable PIECEWISE graph could bind the GDN per-step state to
+capture-time buffers and poison later requests. Testing in September 2026
+isolated the real `!` cause to hybrid MTP + align-mode prefix-cache corruption
+(the `#53505` / `#53919` bugs, see above), and with
+`VLLM_USE_BREAKABLE_CUDAGRAPH=0` a fresh engine passed a **121,282-token /
+40-turn needle soak with 0 failures**. The old claim is retired: breakable is off
+by default and only worth turning on as a debugging lever. `--enforce-eager`
+remains far worse (a few tok/s on this stack).
 
 ## Other runtime patches (why they exist)
 
